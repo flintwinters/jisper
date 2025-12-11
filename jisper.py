@@ -6,7 +6,7 @@ from rich.text import Text
 import json
 
 # Initialize Typer app and Rich console
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 console = Console()
 
 CONTEXT_FILE = "context.json"
