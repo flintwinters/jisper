@@ -1,6 +1,7 @@
 import typer
 from rich.console import Console
 from rich.text import Text
+from rich.markdown import Markdown
 import json
 import os
 import google.generativeai as genai
@@ -96,7 +97,7 @@ def main(
         ai_response_content = response.text
         context.append({"role": "assistant", "content": ai_response_content})
         save_context(context)
-        console.print(Text(f"{ai_response_content}", style="bold green"))
+        console.print(Markdown(ai_response_content))
     else:
         console.print(ctx.get_help())
 
