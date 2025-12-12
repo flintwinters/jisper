@@ -1,13 +1,18 @@
-# ai_coding_assistant/main_cli_tool.py
-
 import typer
 from rich.console import Console
 from rich.text import Text
 import json
+import os
+import google.generativeai as genai
+from jinja2 import Environment, FileSystemLoader
 
 # Initialize Typer app and Rich console
 app = typer.Typer(no_args_is_help=True)
 console = Console()
+
+# IMPORTANT: Set the GEMINI_API_KEY environment variable for this to work.
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 CONTEXT_FILE = "context.json"
 
@@ -24,6 +29,10 @@ def save_context(context):
     with open(CONTEXT_FILE, "w") as f:
         json.dump(context, f, indent=2)
 
+# Set up Jinja2 environment
+env = Environment(loader=FileSystemLoader('.'))
+template = env.get_template('prompt.jinja')
+
 @app.command()
 def chat(message: str):
     """Simulate a chat turn with the AI assistant."""
@@ -31,7 +40,13 @@ def chat(message: str):
 
     # Add user message to context
     context.append({"role": "user", "content": message})
-    save_context(context)
+    
+    # Format context using Jinja2 template
+    prompt_text = template.render(messages=context)
+
+    # Generate response from Gemini
+    response = model.generate_content(prompt_text)
+    ai_response_content = response.text
 
     context.append({"role": "assistant", "content": ai_response_content})
     save_context(context)
