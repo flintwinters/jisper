@@ -6,11 +6,9 @@ import os
 import google.generativeai as genai
 from jinja2 import Environment, FileSystemLoader
 
-# Initialize Typer app and Rich console
 app = typer.Typer(no_args_is_help=True)
 console = Console()
 
-# IMPORTANT: Set the GEMINI_API_KEY environment variable for this to work.
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-2.5-flash')
 
@@ -29,7 +27,6 @@ def save_context(context):
     with open(CONTEXT_FILE, "w") as f:
         json.dump(context, f, indent=2)
 
-# Set up Jinja2 environment
 env = Environment(loader=FileSystemLoader('.'))
 template = env.get_template('prompt.jinja')
 
@@ -38,13 +35,10 @@ def chat(message: str):
     """Simulate a chat turn with the AI assistant."""
     context = load_context()
 
-    # Add user message to context
     context.append({"role": "user", "content": message})
     
-    # Format context using Jinja2 template
     prompt_text = template.render(messages=context)
 
-    # Generate response from Gemini
     response = model.generate_content(prompt_text)
     ai_response_content = response.text
 
