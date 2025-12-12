@@ -10,6 +10,7 @@ from typing import Optional
 from rich.live import Live
 from rich.spinner import Spinner
 import diff_match_patch as dmp_module
+import subprocess
 
 app = typer.Typer(no_args_is_help=False)
 console = Console()
@@ -63,9 +64,9 @@ def print_diff(old_string, new_string):
     text = Text()
     for op, data in diffs:
         if op == dmp.DIFF_INSERT:
-            text.append(data, style="on green")
+            text.append(data, style="on #006600")
         elif op == dmp.DIFF_DELETE:
-            text.append(data, style="on red")
+            text.append(data, style="on #660000")
         elif op == dmp.DIFF_EQUAL:
             text.append(data)
     
@@ -82,6 +83,7 @@ def main(
     add_file: Optional[str] = typer.Option(None, "--add-file", "-f", help="Path to the file to add to context."),
     show_context_flag: bool = typer.Option(False, "--show-context", "-s", help="Display the current conversation context.", is_flag=True),
     clear_context_flag: bool = typer.Option(False, "--clear-context", "-c", help="Clear the conversation context.", is_flag=True),
+    undo_flag: bool = typer.Option(False, "--undo", "-u", help="Revert the last commit.", is_flag=True),
 ):
     """
     A CLI for interacting with a Gemini-powered AI assistant.
@@ -110,6 +112,13 @@ def main(
     elif clear_context_flag:
         save_context([])
         console.print(Text("Context cleared.", style="bold red"))
+    elif undo_flag:
+        try:
+            console.print(Text("Attempting to revert the last commit...", style="italic yellow"))
+            subprocess.run(["git", "reset", "--hard", "HEAD~1"], check=True)
+            console.print(Text("Successfully reverted the last commit.", style="bold green"))
+        except subprocess.CalledProcessError as e:
+            console.print(Text(f"Error reverting commit: {e}", style="bold red"))
     elif add_file:
         context = load_context()
         context.append({"role": "file", "path": add_file})
