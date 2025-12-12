@@ -8,6 +8,7 @@ import google.generativeai as genai
 from jinja2 import Environment, FileSystemLoader
 from typing import Optional
 from rich.live import Live
+from rich.spinner import Spinner
 
 app = typer.Typer(no_args_is_help=False)
 console = Console()
@@ -118,7 +119,7 @@ def main(
         prompt_text = template.render(messages=rendered_messages)
         
         with Live(console=console, screen=False, auto_refresh=True, transient=True) as live:
-            live.update(Text("Thinking...", style="bold yellow"))
+            live.update(Spinner("line", speed=10.0))
             response = model.generate_content(prompt_text)
         
         ai_response_json = json.loads(response.text)
