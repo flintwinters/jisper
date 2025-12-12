@@ -37,7 +37,24 @@ def chat(message: str):
 
     context.append({"role": "user", "content": message})
     
-    prompt_text = template.render(messages=context)
+    # Prepare messages for rendering, including file contents
+    rendered_messages = []
+    for entry in context:
+        if entry["role"] == "file":
+            try:
+                with open(entry["path"], "r") as f:
+                    file_content = f.read()
+                rendered_messages.append({"role": "file_content", "path": entry['path'], "content": file_content})
+            except FileNotFoundError:
+                console.print(Text(f"Warning: File not found: {entry['path']}", style="bold yellow"))
+                rendered_messages.append({"role": "error_message", "content": f"Failed to load file: {entry['path']}"})
+            except Exception as e:
+                console.print(Text(f"Error reading file {entry['path']}: {e}", style="bold red"))
+                rendered_messages.append({"role": "error_message", "content": f"Error reading file {entry['path']}: {e}"})
+        else:
+            rendered_messages.append(entry)
+
+    prompt_text = template.render(messages=rendered_messages)
 
     response = model.generate_content(prompt_text)
     ai_response_content = response.text
@@ -46,6 +63,14 @@ def chat(message: str):
     save_context(context)
 
     console.print(Text(f"{ai_response_content}", style="bold green"))
+
+@app.command()
+def add_file_to_context(file_path: str):
+    """Adds a file path to the conversation context."""
+    context = load_context()
+    context.append({"role": "file", "path": file_path})
+    save_context(context)
+    console.print(Text(f"Added file '{file_path}' to context.", style="bold blue"))
 
 
 @app.command()
@@ -59,10 +84,16 @@ def show_context():
     context_text = Text()
     for entry in context:
         role = entry["role"]
-        content = entry["content"]
         style = "bold blue" if role == "user" else "bold green"
-        context_text.append(f"{role.capitalize()}: ", style=style)
-        context_text.append(f"{content}\n")
+        
+        if role == "file":
+            path = entry["path"]
+            context_text.append(f"File Path: ", style="bold magenta")
+            context_text.append(f"{path}\n")
+        else:
+            content = entry["content"]
+            context_text.append(f"{role.capitalize()}: ", style=style)
+            context_text.append(f"{content}\n")
 
     console.print(context_text)
 
