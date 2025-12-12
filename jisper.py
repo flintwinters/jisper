@@ -5,8 +5,9 @@ import json
 import os
 import google.generativeai as genai
 from jinja2 import Environment, FileSystemLoader
+from typing import Optional
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=False)
 console = Console()
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -30,79 +31,74 @@ def save_context(context):
 env = Environment(loader=FileSystemLoader('.'))
 template = env.get_template('prompt.jinja')
 
-@app.command()
-def chat(message: str):
-    """Simulate a chat turn with the AI assistant."""
-    context = load_context()
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    message: Optional[str] = typer.Argument(None, help="The message to send to the AI assistant."),
+    add_file: Optional[str] = typer.Option(None, "--add-file", "-f", help="Path to the file to add to context."),
+    show_context_flag: bool = typer.Option(False, "--show-context", "-s", help="Display the current conversation context.", is_flag=True),
+    clear_context_flag: bool = typer.Option(False, "--clear-context", "-c", help="Clear the conversation context.", is_flag=True),
+):
+    """
+    A CLI for interacting with a Gemini-powered AI assistant.
+    """
+    if show_context_flag:
+        context = load_context()
+        if not context:
+            console.print(Text("Context is empty.", style="italic yellow"))
+            return
 
-    context.append({"role": "user", "content": message})
-    
-    # Prepare messages for rendering, including file contents
-    rendered_messages = []
-    for entry in context:
-        if entry["role"] == "file":
-            try:
-                with open(entry["path"], "r") as f:
-                    file_content = f.read()
-                rendered_messages.append({"role": "file_content", "path": entry['path'], "content": file_content})
-            except FileNotFoundError:
-                console.print(Text(f"Warning: File not found: {entry['path']}", style="bold yellow"))
-                rendered_messages.append({"role": "error_message", "content": f"Failed to load file: {entry['path']}"})
-            except Exception as e:
-                console.print(Text(f"Error reading file {entry['path']}: {e}", style="bold red"))
-                rendered_messages.append({"role": "error_message", "content": f"Error reading file {entry['path']}: {e}"})
-        else:
-            rendered_messages.append(entry)
+        context_text = Text()
+        for entry in context:
+            role = entry["role"]
+            style = "bold blue" if role == "user" else "bold green"
+            
+            if role == "file":
+                path = entry["path"]
+                context_text.append(f"File Path: ", style="bold magenta")
+                context_text.append(f"{path}\n")
+            else:
+                content = entry["content"]
+                context_text.append(f"{role.capitalize()}: ", style=style)
+                context_text.append(f"{content}\n")
 
-    prompt_text = template.render(messages=rendered_messages)
-
-    response = model.generate_content(prompt_text)
-    ai_response_content = response.text
-
-    context.append({"role": "assistant", "content": ai_response_content})
-    save_context(context)
-
-    console.print(Text(f"{ai_response_content}", style="bold green"))
-
-@app.command()
-def add_file_to_context(file_path: str):
-    """Adds a file path to the conversation context."""
-    context = load_context()
-    context.append({"role": "file", "path": file_path})
-    save_context(context)
-    console.print(Text(f"Added file '{file_path}' to context.", style="bold blue"))
-
-
-@app.command()
-def show_context():
-    """Display the current conversation context."""
-    context = load_context()
-    if not context:
-        console.print(Text("Context is empty.", style="italic yellow"))
-        return
-
-    context_text = Text()
-    for entry in context:
-        role = entry["role"]
-        style = "bold blue" if role == "user" else "bold green"
+        console.print(context_text)
+    elif clear_context_flag:
+        save_context([])
+        console.print(Text("Context cleared.", style="bold red"))
+    elif add_file:
+        context = load_context()
+        context.append({"role": "file", "path": add_file})
+        save_context(context)
+        console.print(Text(f"Added file '{add_file}' to context.", style="bold blue"))
+    elif message:
+        context = load_context()
+        context.append({"role": "user", "content": message})
         
-        if role == "file":
-            path = entry["path"]
-            context_text.append(f"File Path: ", style="bold magenta")
-            context_text.append(f"{path}\n")
-        else:
-            content = entry["content"]
-            context_text.append(f"{role.capitalize()}: ", style=style)
-            context_text.append(f"{content}\n")
+        rendered_messages = []
+        for entry in context:
+            if entry["role"] == "file":
+                try:
+                    with open(entry["path"], "r") as f:
+                        file_content = f.read()
+                    rendered_messages.append({"role": "file_content", "path": entry['path'], "content": file_content})
+                except FileNotFoundError:
+                    console.print(Text(f"Warning: File not found: {entry['path']}", style="bold yellow"))
+                    rendered_messages.append({"role": "error_message", "content": f"Failed to load file: {entry['path']}"})
+                except Exception as e:
+                    console.print(Text(f"Error reading file {entry['path']}: {e}", style="bold red"))
+                    rendered_messages.append({"role": "error_message", "content": f"Error reading file {entry['path']}: {e}"})
+            else:
+                rendered_messages.append(entry)
 
-    console.print(context_text)
-
-
-@app.command()
-def clear_context():
-    """Clear the conversation context."""
-    save_context([])
-    console.print(Text("Context cleared.", style="bold red"))
+        prompt_text = template.render(messages=rendered_messages)
+        response = model.generate_content(prompt_text)
+        ai_response_content = response.text
+        context.append({"role": "assistant", "content": ai_response_content})
+        save_context(context)
+        console.print(Text(f"{ai_response_content}", style="bold green"))
+    else:
+        console.print(ctx.get_help())
 
 
 if __name__ == "__main__":
