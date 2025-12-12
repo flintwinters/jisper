@@ -38,6 +38,19 @@ def save_context(context):
     with open(CONTEXT_FILE, "w") as f:
         json.dump(context, f, indent=2)
 
+def replace_in_file(filename, old_string, new_string):
+    """Replaces a string in a file."""
+    with open(filename, "r") as f:
+        content = f.read()
+    
+    if old_string not in content:
+        raise ValueError("The specified old_string was not found in the file.")
+
+    new_content = content.replace(old_string, new_string, 1)
+
+    with open(filename, "w") as f:
+        f.write(new_content)
+
 env = Environment(loader=FileSystemLoader('.'))
 template = env.get_template('prompt.jinja')
 
@@ -120,7 +133,7 @@ def main(
             if filename and old_string and new_string:
                 console.print(Text(f"Applying edit to {filename}...", style="bold yellow"))
                 try:
-                    default_api.replace(file_path=filename, instruction="Applying AI-suggested edit", old_string=old_string, new_string=new_string)
+                    replace_in_file(filename, old_string, new_string)
                     console.print(Text(f"Successfully applied edit to {filename}.", style="bold green"))
                 except Exception as e:
                     console.print(Text(f"Error applying edit to {filename}: {e}", style="bold red"))
