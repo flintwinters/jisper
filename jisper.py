@@ -12,7 +12,16 @@ app = typer.Typer(no_args_is_help=False)
 console = Console()
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-2.5-flash')
+
+RESPONSE_SCHEMA = json.loads(open("response_schema.json", "r").read())
+
+model = genai.GenerativeModel(
+    'gemini-2.5-flash',
+    generation_config=genai.types.GenerationConfig(
+        response_mime_type="application/json",
+        response_schema=RESPONSE_SCHEMA
+    )
+)
 
 CONTEXT_FILE = "context.json"
 
@@ -94,10 +103,29 @@ def main(
 
         prompt_text = template.render(messages=rendered_messages)
         response = model.generate_content(prompt_text)
-        ai_response_content = response.text
+        
+        ai_response_json = json.loads(response.text)
+        ai_response_content = ai_response_json.get("response_text", "")
+        ai_edit = ai_response_json.get("edit")
+        
         context.append({"role": "assistant", "content": ai_response_content})
         save_context(context)
         console.print(Markdown(ai_response_content))
+
+        if ai_edit:
+            filename = ai_edit.get("filename")
+            old_string = ai_edit.get("old_string")
+            new_string = ai_edit.get("new_string")
+
+            if filename and old_string and new_string:
+                console.print(Text(f"Applying edit to {filename}...", style="bold yellow"))
+                try:
+                    default_api.replace(file_path=filename, instruction="Applying AI-suggested edit", old_string=old_string, new_string=new_string)
+                    console.print(Text(f"Successfully applied edit to {filename}.", style="bold green"))
+                except Exception as e:
+                    console.print(Text(f"Error applying edit to {filename}: {e}", style="bold red"))
+            else:
+                console.print(Text("Warning: Malformed edit object received from AI.", style="bold yellow"))
     else:
         console.print(ctx.get_help())
 
