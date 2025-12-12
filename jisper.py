@@ -9,6 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 from typing import Optional
 from rich.live import Live
 from rich.spinner import Spinner
+import diff_match_patch as dmp_module
 
 app = typer.Typer(no_args_is_help=False)
 console = Console()
@@ -52,6 +53,24 @@ def replace_in_file(filename, old_string, new_string):
 
     with open(filename, "w") as f:
         f.write(new_content)
+
+def print_diff(old_string, new_string):
+    """Prints a colorful, character-level diff of the changes."""
+    dmp = dmp_module.diff_match_patch()
+    diffs = dmp.diff_main(old_string, new_string)
+    dmp.diff_cleanupSemantic(diffs)
+
+    text = Text()
+    for op, data in diffs:
+        if op == dmp.DIFF_INSERT:
+            text.append(data, style="on green")
+        elif op == dmp.DIFF_DELETE:
+            text.append(data, style="on red")
+        elif op == dmp.DIFF_EQUAL:
+            text.append(data)
+    
+    console.print(text)
+
 
 env = Environment(loader=FileSystemLoader('.'))
 template = env.get_template('prompt.jinja')
@@ -119,7 +138,7 @@ def main(
         prompt_text = template.render(messages=rendered_messages)
         
         with Live(console=console, screen=False, auto_refresh=True, transient=True) as live:
-            live.update(Spinner("line", speed=10.0))
+            live.update(Spinner("pipe", speed=10.0))
             response = model.generate_content(prompt_text)
         
         ai_response_json = json.loads(response.text)
@@ -138,7 +157,8 @@ def main(
             if filename and old_string and new_string:
                 try:
                     replace_in_file(filename, old_string, new_string)
-                    console.print(Text(f"Successfully applied edit to {filename}.", style="bold green"))
+                    console.print(Text(f"Applied edit to {filename}:", style="bold blue"))
+                    print_diff(old_string, new_string)
                 except Exception as e:
                     console.print(Text(f"Error applying edit to {filename}: {e}", style="bold red"))
             else:
