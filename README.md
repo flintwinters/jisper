@@ -1,4 +1,4 @@
-# AI Coding Assistant
+# JISPer
 
 ## Overview
 
