@@ -136,14 +136,13 @@ def main(
             new_string = ai_edit.get("new_string")
 
             if filename and old_string and new_string:
-                console.print(Text(f"Applying edit to {filename}...", style="bold yellow"))
                 try:
                     replace_in_file(filename, old_string, new_string)
                     console.print(Text(f"Successfully applied edit to {filename}.", style="bold green"))
                 except Exception as e:
                     console.print(Text(f"Error applying edit to {filename}: {e}", style="bold red"))
             else:
-                console.print(Text("Warning: Malformed edit object received from AI.", style="bold yellow"))
+                console.print(Text("Warning: Malformed edit object received from AI.", style="bold red"))
     else:
         console.print(ctx.get_help())
 
