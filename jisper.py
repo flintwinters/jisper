@@ -211,8 +211,7 @@ def main(
 
         # Print usage metadata
         metadata_text = Text()
-        metadata_text.append(f"Tokens: {input_tokens} in, {output_tokens} out. ", style="italic dim")
-        metadata_text.append(f"Cost: ${turn_cost:.6f} (Turn), ${total_cost:.6f} (Total)", style="italic dim")
+        metadata_text.append(f"${turn_cost:.4f}, Total: ${total_cost:.4f}", style="italic dim")
         console.print(metadata_text)
         
         if ai_edit:
