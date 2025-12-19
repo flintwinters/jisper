@@ -1,3 +1,4 @@
+{% include 'prompt.md' %}
 {% for message in messages %}
 {% if message.role == 'file_content' %}
 File: {{ message.path }}
