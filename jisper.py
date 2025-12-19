@@ -12,6 +12,11 @@ from rich.spinner import Spinner
 import diff_match_patch as dmp_module
 import subprocess
 
+# Pricing for gemini-1.5-flash (as a placeholder for gemini-2.5-flash)
+# Prices per 1 million tokens in USD
+INPUT_PRICE_PER_1M_TOKENS = 0.35
+OUTPUT_PRICE_PER_1M_TOKENS = 0.70
+
 app = typer.Typer(no_args_is_help=False)
 console = Console()
 
@@ -108,6 +113,17 @@ def main(
                 context_text.append(f"{role.capitalize()}: ", style=style)
                 context_text.append(f"{content}\n")
 
+            if role == "assistant" and "turn_cost" in entry:
+                input_tokens = entry.get("input_tokens", "N/A")
+                output_tokens = entry.get("output_tokens", "N/A")
+                turn_cost = entry.get("turn_cost", 0)
+                total_cost = entry.get("total_cost", 0)
+                
+                metadata_text = Text()
+                metadata_text.append(f"    Tokens: {input_tokens} in, {output_tokens} out. ", style="italic dim")
+                metadata_text.append(f"Cost: ${turn_cost:.6f} (Turn), ${total_cost:.6f} (Total)\n", style="italic dim")
+                context_text.append(metadata_text)
+
         console.print(context_text)
     elif clear_context_flag:
         save_context([])
@@ -154,10 +170,41 @@ def main(
         ai_response_content = ai_response_json.get("response_text", "")
         ai_edit = ai_response_json.get("edit")
         
-        context.append({"role": "assistant", "content": ai_response_content})
+        input_tokens = response.usage_metadata.prompt_token_count
+        output_tokens = response.usage_metadata.candidates_token_count
+        
+        input_cost = (input_tokens / 1_000_000) * INPUT_PRICE_PER_1M_TOKENS
+        output_cost = (output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M_TOKENS
+        turn_cost = input_cost + output_cost
+
+        # Find the last total_cost to calculate the new total_cost
+        last_total_cost = 0
+        for entry in reversed(context):
+            if entry.get("role") == "assistant" and "total_cost" in entry:
+                last_total_cost = entry["total_cost"]
+                break
+        
+        total_cost = last_total_cost + turn_cost
+
+        assistant_response = {
+            "role": "assistant",
+            "content": ai_response_content,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "turn_cost": turn_cost,
+            "total_cost": total_cost,
+        }
+        
+        context.append(assistant_response)
         save_context(context)
         console.print(Markdown(ai_response_content))
 
+        # Print usage metadata
+        metadata_text = Text()
+        metadata_text.append(f"Tokens: {input_tokens} in, {output_tokens} out. ", style="italic dim")
+        metadata_text.append(f"Cost: ${turn_cost:.6f} (Turn), ${total_cost:.6f} (Total)", style="italic dim")
+        console.print(metadata_text)
+        
         if ai_edit:
             filename = ai_edit.get("filename")
             old_string = ai_edit.get("old_string")
