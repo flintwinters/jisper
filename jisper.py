@@ -34,9 +34,29 @@ def load_context():
     """Loads the conversation context from the JSON file."""
     try:
         with open(CONTEXT_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
     except FileNotFoundError:
-        return []
+        return {"history": [], "files": [], "total_cost": 0.0}
+
+    if isinstance(data, list):
+        context = {"history": [], "files": [], "total_cost": 0.0}
+        last_total_cost = 0.0
+        for item in data:
+            role = item.get("role")
+            if role in ["user", "assistant"]:
+                context["history"].append(item)
+                if role == "assistant" and "total_cost" in item:
+                    last_total_cost = item["total_cost"]
+            elif role == "file":
+                context["files"].append(item)
+        context["total_cost"] = last_total_cost
+        return context
+    
+    # Make sure all keys exist
+    data.setdefault('history', [])
+    data.setdefault('files', [])
+    data.setdefault('total_cost', 0.0)
+    return data
 
 def save_context(context):
     """Saves the conversation context to the JSON file."""
@@ -93,43 +113,48 @@ def main(
     """
     if show_context_flag:
         context = load_context()
-        if not context:
+        if not context.get("history") and not context.get("files"):
             console.print(Text("Context is empty.", style="italic yellow"))
             return
 
         context_text = Text()
-        for entry in context:
-            role = entry["role"]
-            style = "bold blue" if role == "user" else "bold green"
-            
-            if role == "file":
+
+        # Display files
+        if context.get("files"):
+            for entry in context["files"]:
                 path = entry["path"]
                 context_text.append(f"File Path: ", style="bold magenta")
                 context_text.append(f"{path}\n")
-            else:
+
+        # Display history
+        if context.get("history"):
+            for entry in context["history"]:
+                role = entry["role"]
+                style = "bold blue" if role == "user" else "bold green"
+                
                 content = entry["content"]
                 context_text.append(f"{role.capitalize()}: ", style=style)
                 context_text.append(f"{content}\n")
 
-            if role == "assistant" and "turn_cost" in entry:
-                input_tokens = entry.get("input_tokens", "N/A")
-                output_tokens = entry.get("output_tokens", "N/A")
-                turn_cost = entry.get("turn_cost", 0)
-                total_cost = entry.get("total_cost", 0)
-                
-                metadata_text = Text()
-                metadata_text.append(f"    Tokens: {input_tokens} in, {output_tokens} out. ", style="italic dim")
-                metadata_text.append(f"Cost: ${turn_cost:.6f} (Turn), ${total_cost:.6f} (Total)\n", style="italic dim")
-                context_text.append(metadata_text)
-
+                if role == "assistant" and "turn_cost" in entry:
+                    input_tokens = entry.get("input_tokens", "N/A")
+                    output_tokens = entry.get("output_tokens", "N/A")
+                    turn_cost = entry.get("turn_cost", 0)
+                    total_cost = entry.get("total_cost", 0)
+                    
+                    metadata_text = Text()
+                    metadata_text.append(f"    Tokens: {input_tokens} in, {output_tokens} out. ", style="italic dim")
+                    metadata_text.append(f"Cost: ${turn_cost:.6f} (Turn), ${total_cost:.6f} (Total)\n", style="italic dim")
+                    context_text.append(metadata_text)
+        
         console.print(context_text)
     elif clear_context_flag:
-        save_context([])
+        save_context({"history": [], "files": [], "total_cost": 0.0})
         console.print(Text("Context cleared.", style="bold red"))
     elif clear_history_flag:
         context = load_context()
-        new_context = [entry for entry in context if entry.get("role") not in ["user", "assistant"]]
-        save_context(new_context)
+        context["history"] = []
+        save_context(context)
         console.print(Text("Chat history cleared.", style="bold red"))
     elif undo_flag:
         try:
@@ -140,7 +165,7 @@ def main(
             console.print(Text(f"Error reverting commit: {e}", style="bold red"))
     elif add_file:
         context = load_context()
-        context.append({"role": "file", "path": add_file})
+        context["files"].append({"role": "file", "path": add_file})
         save_context(context)
         console.print(Text(f"Added file '{add_file}' to context.", style="bold blue"))
     elif message:
@@ -157,10 +182,14 @@ def main(
         )
         
         context = load_context()
-        context.append({"role": "user", "content": message})
+        context["history"].append({"role": "user", "content": message})
         
         rendered_messages = []
-        for entry in context:
+        
+        # Combine files and history for rendering the prompt
+        full_context_list = context["files"] + context["history"]
+
+        for entry in full_context_list:
             if entry["role"] == "file":
                 try:
                     with open(entry["path"], "r") as f:
@@ -192,14 +221,9 @@ def main(
         output_cost = (output_tokens / 1_000_000) * MODELS[model_name]["output"]
         turn_cost = input_cost + output_cost
 
-        # Find the last total_cost to calculate the new total_cost
-        last_total_cost = 0
-        for entry in reversed(context):
-            if entry.get("role") == "assistant" and "total_cost" in entry:
-                last_total_cost = entry["total_cost"]
-                break
-        
+        last_total_cost = context.get("total_cost", 0.0)
         total_cost = last_total_cost + turn_cost
+        context["total_cost"] = total_cost
 
         assistant_response = {
             "role": "assistant",
@@ -210,7 +234,7 @@ def main(
             "total_cost": total_cost,
         }
         
-        context.append(assistant_response)
+        context["history"].append(assistant_response)
         save_context(context)
         console.print(Markdown(ai_response_content))
 
