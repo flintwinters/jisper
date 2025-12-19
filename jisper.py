@@ -14,8 +14,13 @@ import subprocess
 
 # Pricing for gemini-1.5-flash (as a placeholder for gemini-2.5-flash)
 # Prices per 1 million tokens in USD
-INPUT_PRICE_PER_1M_TOKENS = 0.35
-OUTPUT_PRICE_PER_1M_TOKENS = 0.70
+MODELS = {
+    "gemini-3-pro": {"input": 2.00, "output": 12.00},
+    "gemini-3-flash": {"input": 0.50, "output": 3.00},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
+    "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
+}
 
 app = typer.Typer(no_args_is_help=False)
 console = Console()
@@ -23,14 +28,6 @@ console = Console()
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 RESPONSE_SCHEMA = json.loads(open("response_schema.json", "r").read())
-
-model = genai.GenerativeModel(
-    'gemini-2.5-flash',
-    generation_config=genai.types.GenerationConfig(
-        response_mime_type="application/json",
-        response_schema=RESPONSE_SCHEMA
-    )
-)
 
 CONTEXT_FILE = "context.json"
 
@@ -89,6 +86,7 @@ def main(
     show_context_flag: bool = typer.Option(False, "--show-context", "-s", help="Display the current conversation context.", is_flag=True),
     clear_context_flag: bool = typer.Option(False, "--clear-context", "-c", help="Clear the conversation context.", is_flag=True),
     undo_flag: bool = typer.Option(False, "--undo", "-u", help="Revert the last commit.", is_flag=True),
+    model_name: str = typer.Option("gemini-2.5-flash", "--model", "-m", help="The name of the model to use."),
 ):
     """
     A CLI for interacting with a Gemini-powered AI assistant.
@@ -141,6 +139,18 @@ def main(
         save_context(context)
         console.print(Text(f"Added file '{add_file}' to context.", style="bold blue"))
     elif message:
+        if model_name not in MODELS:
+            console.print(Text(f"Error: Model '{model_name}' not found.", style="bold red"))
+            raise typer.Exit(1)
+
+        model = genai.GenerativeModel(
+            model_name,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=RESPONSE_SCHEMA
+            )
+        )
+        
         context = load_context()
         context.append({"role": "user", "content": message})
         
@@ -173,8 +183,8 @@ def main(
         input_tokens = response.usage_metadata.prompt_token_count
         output_tokens = response.usage_metadata.candidates_token_count
         
-        input_cost = (input_tokens / 1_000_000) * INPUT_PRICE_PER_1M_TOKENS
-        output_cost = (output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M_TOKENS
+        input_cost = (input_tokens / 1_000_000) * MODELS[model_name]["input"]
+        output_cost = (output_tokens / 1_000_000) * MODELS[model_name]["output"]
         turn_cost = input_cost + output_cost
 
         # Find the last total_cost to calculate the new total_cost
