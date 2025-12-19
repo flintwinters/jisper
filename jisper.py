@@ -12,7 +12,6 @@ from rich.spinner import Spinner
 import diff_match_patch as dmp_module
 import subprocess
 
-# Pricing for gemini-1.5-flash (as a placeholder for gemini-2.5-flash)
 # Prices per 1 million tokens in USD
 MODELS = {
     "gemini-3-pro": {"input": 2.00, "output": 12.00},
@@ -173,7 +172,7 @@ def main(
         prompt_text = template.render(messages=rendered_messages)
         
         with Live(console=console, screen=False, auto_refresh=True, transient=True) as live:
-            live.update(Spinner("pipe", speed=10.0))
+            live.update(Spinner("pipe", speed=10.0, style="magenta"))
             response = model.generate_content(prompt_text)
         
         ai_response_json = json.loads(response.text)
