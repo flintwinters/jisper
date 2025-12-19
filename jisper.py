@@ -83,7 +83,8 @@ def main(
     message: Optional[str] = typer.Argument(None, help="The message to send to the AI assistant."),
     add_file: Optional[str] = typer.Option(None, "--add-file", "-f", help="Path to the file to add to context."),
     show_context_flag: bool = typer.Option(False, "--show-context", "-s", help="Display the current conversation context.", is_flag=True),
-    clear_context_flag: bool = typer.Option(False, "--clear-context", "-c", help="Clear the conversation context.", is_flag=True),
+    clear_context_flag: bool = typer.Option(False, "--clear-context", help="Clear the conversation context.", is_flag=True),
+    clear_history_flag: bool = typer.Option(False, "--clear-history", "-c", help="Clear the chat history.", is_flag=True),
     undo_flag: bool = typer.Option(False, "--undo", "-u", help="Revert the last commit.", is_flag=True),
     model_name: str = typer.Option("gemini-2.5-flash", "--model", "-m", help="The name of the model to use."),
 ):
@@ -125,6 +126,11 @@ def main(
     elif clear_context_flag:
         save_context([])
         console.print(Text("Context cleared.", style="bold red"))
+    elif clear_history_flag:
+        context = load_context()
+        new_context = [entry for entry in context if entry.get("role") not in ["user", "assistant"]]
+        save_context(new_context)
+        console.print(Text("Chat history cleared.", style="bold red"))
     elif undo_flag:
         try:
             console.print(Text("Attempting to revert the last commit...", style="italic yellow"))
