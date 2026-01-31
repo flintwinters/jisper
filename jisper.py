@@ -13,7 +13,7 @@ from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
-console = Console(soft_wrap=False)
+console = Console(soft_wrap=True)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
@@ -341,7 +341,7 @@ def print_numbered_unified_diff(
         console.print("[yellow](no diff; contents are identical)[/yellow]")
         return
 
-    console.print(Syntax("\n".join(lines), "diff", theme="ansi_dark", line_numbers=False))
+    console.print(Syntax("\n".join(lines), "diff", theme="ansi_dark", line_numbers=False, word_wrap=False))
 
 
 def format_numbered_combined_diff(
@@ -493,6 +493,7 @@ def print_numbered_combined_diff(
             theme="ansi_dark",
             background_color=bg,
             line_numbers=False,
+            word_wrap=False,
         )
 
     for kind, line in lines:
