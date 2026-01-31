@@ -589,6 +589,18 @@ def print_numbered_combined_diff(
         if t.plain:
             t.stylize(f"on {bg}", 0, len(t.plain))
 
+    def terminal_width() -> int:
+        return max(0, int(getattr(console, "width", 0) or 0))
+
+    def pad_to_terminal_width(t: Text) -> Text:
+        w = terminal_width()
+        if w <= 0:
+            return t
+        pad = max(0, w - len(t.plain))
+        if pad <= 0:
+            return t
+        return t + Text(" " * pad)
+
     def highlight_one_line(line: str) -> Text:
         src = line[:-1] if line.endswith("\n") else line
         s = Syntax(src, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
@@ -614,10 +626,14 @@ def print_numbered_combined_diff(
             rest_txt = t[len(prefix_txt.plain) :]
             base_prefix = highlight_one_line(prefix_txt.plain)
             apply_bg(base_prefix, bg_for_kind(kind))
-            return base_prefix + rest_txt
+            out = base_prefix + rest_txt
+            out = pad_to_terminal_width(out)
+            apply_bg(out, bg_for_kind(kind))
+            return out
 
         plain = t.plain
         base = highlight_one_line(plain)
+        base = pad_to_terminal_width(base)
         apply_bg(base, bg_for_kind(kind))
         return base
 
