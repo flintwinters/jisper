@@ -10,6 +10,7 @@ from rich import print
 from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
+from rich.style import Style
 
 
 console = Console(soft_wrap=False)
@@ -404,13 +405,13 @@ def rich_inline_diff(old: str, new: str) -> Text:
     sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
-    del_bg = "#4a1414"
-    add_bg = "#0f3d0f"
+    del_style = Style(bgcolor="#4a1414")
+    add_style = Style(bgcolor="#0f3d0f")
 
-    def append_bg(s: str, bg: str):
+    def append_bg(s: str, style: Style):
         if not s:
             return
-        t.append(s, style=f"on {bg}")
+        t.append(s, style=style)
 
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
@@ -418,16 +419,16 @@ def rich_inline_diff(old: str, new: str) -> Text:
             continue
 
         if tag == "delete":
-            append_bg("".join(a_tokens[i1:i2]), del_bg)
+            append_bg("".join(a_tokens[i1:i2]), del_style)
             continue
 
         if tag == "insert":
-            append_bg("".join(b_tokens[j1:j2]), add_bg)
+            append_bg("".join(b_tokens[j1:j2]), add_style)
             continue
 
         if tag == "replace":
-            append_bg("".join(a_tokens[i1:i2]), del_bg)
-            append_bg("".join(b_tokens[j1:j2]), add_bg)
+            append_bg("".join(a_tokens[i1:i2]), del_style)
+            append_bg("".join(b_tokens[j1:j2]), add_style)
             continue
 
     return t
