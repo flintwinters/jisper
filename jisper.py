@@ -20,6 +20,12 @@ DEFAULT_PROMPT_FILE = "prompt.json"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
+DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
+
+MODEL_PRICES_USD_PER_1M = {
+    "gpt-5.2": (5.0, 15.0),
+}
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
     v = config.get(key)
@@ -109,7 +115,89 @@ def build_payload(prompt_config: dict, source_text: str):
 
     return payload
 
-def run(config_path: Path) -> dict:
+def get_int_from_any(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if s.isdigit():
+            return int(s)
+    return None
+
+
+def safe_get(d: dict, key: str):
+    if not isinstance(d, dict):
+        return None
+    return d.get(key)
+
+
+def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
+    usage = safe_get(api_json, "usage")
+    prompt_tokens = get_int_from_any(safe_get(usage, "prompt_tokens"))
+    completion_tokens = get_int_from_any(safe_get(usage, "completion_tokens"))
+    total_tokens = get_int_from_any(safe_get(usage, "total_tokens"))
+
+    header_map = dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (response_headers or {}).items()))
+    prompt_tokens = prompt_tokens or get_int_from_any(header_map.get("x-openai-prompt-tokens"))
+    completion_tokens = completion_tokens or get_int_from_any(header_map.get("x-openai-completion-tokens"))
+    total_tokens = total_tokens or get_int_from_any(header_map.get("x-openai-total-tokens"))
+
+    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+        total_tokens = prompt_tokens + completion_tokens
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
+    conf_prices = config.get("model_prices_usd_per_1m")
+    if isinstance(conf_prices, dict):
+        v = conf_prices.get(model_code)
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            in_p = v[0]
+            out_p = v[1]
+            if isinstance(in_p, (int, float)) and isinstance(out_p, (int, float)):
+                return (float(in_p), float(out_p))
+
+    if model_code in MODEL_PRICES_USD_PER_1M:
+        return MODEL_PRICES_USD_PER_1M[model_code]
+
+    fallback_in = config.get("fallback_input_usd_per_1m")
+    fallback_out = config.get("fallback_output_usd_per_1m")
+    in_p = float(fallback_in) if isinstance(fallback_in, (int, float)) else DEFAULT_FALLBACK_INPUT_USD_PER_1M
+    out_p = float(fallback_out) if isinstance(fallback_out, (int, float)) else DEFAULT_FALLBACK_OUTPUT_USD_PER_1M
+    return (in_p, out_p)
+
+
+def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
+    if prompt_tokens is None and completion_tokens is None:
+        return None
+    pt = float(prompt_tokens or 0)
+    ct = float(completion_tokens or 0)
+    return (pt * in_usd_per_1m + ct * out_usd_per_1m) / 1_000_000.0
+
+
+def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
+    pt = usage.get("prompt_tokens")
+    ct = usage.get("completion_tokens")
+    tt = usage.get("total_tokens")
+    cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m)
+
+    def fmt_int(v) -> str:
+        return str(v) if isinstance(v, int) else "?"
+
+    cost_s = f"${cost:.6f}" if isinstance(cost, float) else "$?"
+    return f"tokens in={fmt_int(pt)} out={fmt_int(ct)} total={fmt_int(tt)} cost~{cost_s} ({model_code})"
+
+
+def run(config_path: Path) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
 
     endpoint_url = get_endpoint_url(config)
@@ -135,7 +223,11 @@ def run(config_path: Path) -> dict:
         progress.add_task(description="Waiting for model...", total=None)
         response = requests.post(endpoint_url, headers=headers, json=payload)
 
-    return json.loads(response.json()["choices"][0]["message"]["content"])
+    api_json = response.json()
+    model_code = get_model_code(config)
+    usage = extract_usage_from_api_response(api_json, dict(response.headers))
+    model_out = json.loads(api_json["choices"][0]["message"]["content"])
+    return (model_out, usage, model_code)
 
 def tokenize_for_intraline_diff(s: str) -> list[str]:
     parts = re.findall(r"\s+|[A-Za-z0-9_]+|[^\w\s]", s, flags=re.UNICODE)
@@ -724,7 +816,7 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response = run(config)
+    response, usage, model_code = run(config)
     print_model_change_notes(response or {})
 
     edits = (response or {}).get("edit", {})
@@ -745,6 +837,10 @@ def main(
             print(f"[green]Committed changes:[/green] {committed_message}")
     if repo is not None and not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
+
+    config_obj = load_prompt_file(config)
+    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
+    print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
 
 
 if __name__ == "__main__":
