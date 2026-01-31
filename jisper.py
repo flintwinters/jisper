@@ -464,8 +464,6 @@ def print_numbered_combined_diff(
         console.print("[yellow](no diff; contents are identical)[/yellow]")
         return
 
-    from rich.table import Table
-
     base_bg = "#2b2b2b"
     add_bg = "#0f3d0f"
     del_bg = "#4a1414"
@@ -480,19 +478,25 @@ def print_numbered_combined_diff(
             return rep_bg
         return base_bg
 
-    def render_cell(kind: str, line: str):
+    def pad_to_console_width(s: str) -> str:
+        width = console.size.width
+        if width <= 0:
+            return s
+        return s + " " * max(0, width - len(s))
+
+    def render_line(kind: str, line: str):
         bg = bg_for_kind(kind)
         lexer = "diff" if kind == "header" else "python"
-        return Syntax(line, lexer, theme="ansi_dark", background_color=bg, line_numbers=False)
-
-    table = Table.grid(padding=(0, 0))
-    table.expand = True
-    table.add_column(no_wrap=True)
+        return Syntax(
+            pad_to_console_width(line),
+            lexer,
+            theme="ansi_dark",
+            background_color=bg,
+            line_numbers=False,
+        )
 
     for kind, line in lines:
-        table.add_row(render_cell(kind, line))
-
-    console.print(table)
+        console.print(render_line(kind, line))
 
 def unified_diff_lines(
     old_text: str,
