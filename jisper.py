@@ -9,7 +9,10 @@ from rich import print
 from rich.console import Console
 from rich.text import Text
 
-console = Console(soft_wrap=False)
+def make_console() -> Console:
+    return Console(soft_wrap=False, markup=False, highlight=False)
+
+console = make_console()
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
