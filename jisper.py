@@ -364,8 +364,8 @@ def unified_diff_lines(
     context_lines: int = 3,
 ) -> list[str]:
     """Compute unified-diff lines between two strings with configurable context."""
-    old_lines = old_text.splitlines(keepends=False)
-    new_lines = new_text.splitlines(keepends=False)
+    old_lines = old_text.splitlines(keepends=True)
+    new_lines = new_text.splitlines(keepends=True)
     return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
 
 
@@ -388,7 +388,6 @@ def guess_syntax_lexer_name(text: str) -> str:
 
 
 def syntax_text(body: str, *, lexer_name: str) -> Text:
-    body = body[:-1] if body.endswith("\n") else body
     s = Syntax(
         body,
         lexer_name,
@@ -435,10 +434,12 @@ def format_combined_diff_lines(
 
         prefix = line[:1]
         body = line[1:]
+        body = body[:-1] if body.endswith("\n") else body
 
         if prefix == " ":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
+                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
                 pending_minus = None
             push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
@@ -448,14 +449,16 @@ def format_combined_diff_lines(
 
         if prefix == "-":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
+                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
             pending_minus = line
             continue
 
         if prefix == "+":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
+                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 pending_minus = None
                 old_ln += 1
             push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body))
@@ -466,10 +469,10 @@ def format_combined_diff_lines(
             push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
             old_ln += 1
             pending_minus = None
-        push("header", Text(line))
+        push("header", Text(line[:-1] if line.endswith("\n") else line))
 
     if pending_minus is not None:
-        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
+        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]))
 
     return out
 
