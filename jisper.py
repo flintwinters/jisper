@@ -483,24 +483,6 @@ def print_numbered_combined_diff(
     for t in map(render, lines):
         console.print(t)
 
-def print_intraline_diff(
-    old_text: str,
-    new_text: str,
-    *,
-    context_lines: int = 3,
-    title: str | None = None,
-):
-    """Print a compact per-line diff view for two standalone strings."""
-    print_numbered_combined_diff(
-        old_text,
-        new_text,
-        from_start=1,
-        to_start=1,
-        context_lines=context_lines,
-        title=title,
-    )
-
-
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
     """Print a focused diff preview of a pending replacement within a file."""
     line_info = compute_replacement_line_numbers(original, old_string, new_string)
@@ -575,9 +557,11 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         if updated is None:
             print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
             # Still show what it *wanted* to do, for debugging.
-            print_intraline_diff(
+            print_numbered_combined_diff(
                 old_string,
                 new_string,
+                from_start=1,
+                to_start=1,
                 context_lines=2,
                 title="Replacement text (preview)",
             )
