@@ -301,10 +301,10 @@ def merge_change_opcodes(
 
 
 def rich_inline_diff(old: str, new: str) -> Text:
-    """Rich Text with inline diff highlighting (red deletions, green inserts).
+    """Rich Text with inline diff highlighting using background colors.
 
     Uses a token-based matcher and merges nearby change hunks to avoid overly
-    fragmented red/green segments.
+    fragmented segments.
     """
     t = Text()
     a_tokens = tokenize_for_intraline_diff(old)
@@ -313,22 +313,30 @@ def rich_inline_diff(old: str, new: str) -> Text:
     sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
+    del_bg = "#4a1414"
+    add_bg = "#0f3d0f"
+
+    def append_bg(s: str, bg: str):
+        if not s:
+            return
+        t.append(s, style=f"on {bg}")
+
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
             t.append("".join(a_tokens[i1:i2]))
             continue
 
         if tag == "delete":
-            t.append("".join(a_tokens[i1:i2]), style="red")
+            append_bg("".join(a_tokens[i1:i2]), del_bg)
             continue
 
         if tag == "insert":
-            t.append("".join(b_tokens[j1:j2]), style="green")
+            append_bg("".join(b_tokens[j1:j2]), add_bg)
             continue
 
         if tag == "replace":
-            t.append("".join(a_tokens[i1:i2]), style="red")
-            t.append("".join(b_tokens[j1:j2]), style="green")
+            append_bg("".join(a_tokens[i1:i2]), del_bg)
+            append_bg("".join(b_tokens[j1:j2]), add_bg)
             continue
 
     return t
