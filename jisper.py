@@ -462,43 +462,7 @@ def print_numbered_combined_diff(
         print_no_diff_notice()
         return
 
-    base_bg = "#2b2b2b"
-    add_bg = "#0f3d0f"
-    del_bg = "#4a1414"
-    rep_bg = "#3a2f0a"
-
-    def bg_for_kind(kind: str) -> str:
-        if kind == "insert":
-            return add_bg
-        if kind == "delete":
-            return del_bg
-        if kind == "replace":
-            return rep_bg
-        return base_bg
-
-    def apply_bg(t: Text, bg: str):
-        if t.plain:
-            t.stylize(f"on {bg}", 0, len(t.plain))
-
-    def terminal_width() -> int:
-        return max(0, int(getattr(console, "width", 0) or 0))
-
-    def pad_to_terminal_width(t: Text) -> Text:
-        w = terminal_width()
-        if w <= 0:
-            return t
-        pad = max(0, w - len(t.plain))
-        if pad <= 0:
-            return t
-        return t + Text(" " * pad)
-
-    def render(kind_and_text: tuple[str, Text]) -> Text:
-        kind, t = kind_and_text
-        out = pad_to_terminal_width(t)
-        apply_bg(out, bg_for_kind(kind))
-        return out
-
-    for t in map(render, lines):
+    for _, t in lines:
         console.print(t)
 
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
