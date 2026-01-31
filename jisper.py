@@ -677,9 +677,25 @@ def undo_last_commit(base_dir: Path) -> int:
 
 @app.command(add_help_option=False)
 def main(
-    config: Path = typer.Option(DEFAULT_PROMPT_FILE, "--config"),
-    undo: bool = typer.Option(False, "-u", "--undo"),
-    redo: bool = typer.Option(False, "--redo"),
+    config: Path = typer.Option(
+        DEFAULT_PROMPT_FILE,
+        "--config",
+        help="Path to prompt/config JSON5 file (default: prompt.json).",
+        show_default=True,
+    ),
+    undo: bool = typer.Option(
+        False,
+        "-u",
+        "--undo",
+        help="Undo the last git commit (mixed reset to HEAD~1).",
+        show_default=False,
+    ),
+    redo: bool = typer.Option(
+        False,
+        "--redo",
+        help="Redo/undo the last commit (alias of --undo).",
+        show_default=False,
+    ),
 ) -> None:
     if redo:
         raise typer.Exit(code=redo_last_commit(Path.cwd()))
