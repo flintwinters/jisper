@@ -364,8 +364,8 @@ def unified_diff_lines(
     context_lines: int = 3,
 ) -> list[str]:
     """Compute unified-diff lines between two strings with configurable context."""
-    old_lines = old_text.splitlines(keepends=True)
-    new_lines = new_text.splitlines(keepends=True)
+    old_lines = old_text.splitlines(keepends=False)
+    new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
 
 
