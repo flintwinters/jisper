@@ -4,6 +4,7 @@ import json5 as json
 import argparse
 import difflib
 from pathlib import Path
+import re
 import git
 from rich import print
 from rich.console import Console
@@ -242,28 +243,24 @@ def format_numbered_unified_diff(
         )
     )
 
-    old_ln = from_start
     new_ln = to_start
 
     def fmt(ln: int | None) -> str:
         return f"{ln:>6}" if ln is not None else "      "
 
     def format_body_line(prefix: str, text: str) -> str:
-        nonlocal old_ln, new_ln
+        nonlocal new_ln
         if prefix == " ":
-            out = f"{fmt(old_ln)} {fmt(new_ln)}  {prefix}{text}"
-            old_ln += 1
+            out = f"{fmt(new_ln)}  {prefix}{text}"
             new_ln += 1
             return out
         if prefix == "-":
-            out = f"{fmt(old_ln)} {fmt(None)}  {prefix}{text}"
-            old_ln += 1
-            return out
+            return f"{fmt(None)}  {prefix}{text}"
         if prefix == "+":
-            out = f"{fmt(None)} {fmt(new_ln)}  {prefix}{text}"
+            out = f"{fmt(new_ln)}  {prefix}{text}"
             new_ln += 1
             return out
-        return f"{fmt(None)} {fmt(None)}  {prefix}{text}"
+        return f"{fmt(None)}  {prefix}{text}"
 
     out_lines: list[str] = []
     for line in header:
