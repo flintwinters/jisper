@@ -653,14 +653,14 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
     return message
 
 
-def undo_last_commit(base_dir: Path) -> int:
+def redo_last_commit(base_dir: Path) -> int:
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
         return 1
 
     if not repo.head.is_valid():
-        print("No commits to undo")
+        print("No commits to redo")
         return 1
 
     if not repo.head.commit.parents:
@@ -671,11 +671,19 @@ def undo_last_commit(base_dir: Path) -> int:
     return 0
 
 
+def undo_last_commit(base_dir: Path) -> int:
+    return redo_last_commit(base_dir)
+
+
 @app.command(add_help_option=False)
 def main(
     config: Path = typer.Option(DEFAULT_PROMPT_FILE, "--config"),
     undo: bool = typer.Option(False, "-u", "--undo"),
+    redo: bool = typer.Option(False, "--redo"),
 ) -> None:
+    if redo:
+        raise typer.Exit(code=redo_last_commit(Path.cwd()))
+
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
