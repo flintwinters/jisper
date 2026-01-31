@@ -8,7 +8,6 @@ import typer
 from rich import print
 from rich.console import Console
 from rich.text import Text
-from rich.syntax import Syntax
 
 console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
@@ -475,41 +474,11 @@ def print_numbered_combined_diff(
             return t
         return t + Text(" " * pad)
 
-    def highlight_one_line(line: str) -> Text:
-        src = line[:-1] if line.endswith("\n") else line
-        s = Syntax(src, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
-        segs = list(s.highlight(src))
-        out = Text.assemble(*segs)
-        if out.plain.endswith("\n"):
-            out = out[:-1]
-        return out
-
-    def diff_prefix_len(text_line: str) -> int:
-        if not text_line:
-            return 10
-        if len(text_line) < 11:
-            return min(len(text_line), 10)
-        if text_line[8:11] in {"  -", "  +", "  ~"}:
-            return 11
-        return 10
-
     def render(kind_and_text: tuple[str, Text]) -> Text:
         kind, t = kind_and_text
-        if kind == "replace":
-            prefix_txt = t[: min(11, len(t.plain))]
-            rest_txt = t[len(prefix_txt.plain) :]
-            base_prefix = highlight_one_line(prefix_txt.plain)
-            apply_bg(base_prefix, bg_for_kind(kind))
-            out = base_prefix + rest_txt
-            out = pad_to_terminal_width(out)
-            apply_bg(out, bg_for_kind(kind))
-            return out
-
-        plain = t.plain
-        base = highlight_one_line(plain)
-        base = pad_to_terminal_width(base)
-        apply_bg(base, bg_for_kind(kind))
-        return base
+        out = pad_to_terminal_width(t)
+        apply_bg(out, bg_for_kind(kind))
+        return out
 
     for t in map(render, lines):
         console.print(t)
