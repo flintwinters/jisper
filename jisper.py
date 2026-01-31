@@ -612,7 +612,7 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
 
 
 def undo_last_commit(base_dir: Path) -> int:
-    """Undo the most recent commit by resetting HEAD to its parent (mixed)."""
+    """Undo the most recent commit by resetting HEAD and the working tree to its parent."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
@@ -626,12 +626,12 @@ def undo_last_commit(base_dir: Path) -> int:
         print("No parent commit to reset to")
         return 1
 
-    repo.git.reset("--mixed", "HEAD~1")
+    repo.git.reset("--hard", "HEAD~1")
     return 0
 
 
 def redo_last_commit(base_dir: Path) -> int:
-    """Redo an undone commit by fast-forwarding HEAD to ORIG_HEAD when available."""
+    """Redo an undone commit by restoring HEAD and the working tree to ORIG_HEAD when available."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
@@ -651,7 +651,7 @@ def redo_last_commit(base_dir: Path) -> int:
         print("Already at the most recent commit")
         return 0
 
-    repo.git.merge("--ff-only", orig_head.hexsha)
+    repo.git.reset("--hard", orig_head.hexsha)
     return 0
 
 
