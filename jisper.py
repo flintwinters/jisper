@@ -194,7 +194,7 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
         return str(v) if isinstance(v, int) else "?"
 
     cost_s = f"${cost:.6f}" if isinstance(cost, float) else "$?"
-    return f"tokens in={fmt_int(pt)} out={fmt_int(ct)} total={fmt_int(tt)} cost~{cost_s} ({model_code})"
+    return f"[gray]~{cost_s}[/gray]"
 
 
 def run(config_path: Path) -> tuple[dict, dict, str]:
@@ -579,9 +579,6 @@ def print_numbered_combined_diff(
             return rep_bg
         return base_bg
 
-    def to_markup_line(t: Text) -> str:
-        return t.markup
-
     def pad_text_to_console_width(t: Text) -> Text:
         width = console.size.width
         if width <= 0:
@@ -593,29 +590,78 @@ def print_numbered_combined_diff(
         out.append(" " * pad)
         return out
 
-    def prefix_len_for_kind(kind: str) -> int:
-        lnw = 6
-        if kind == "context":
-            return lnw + 4
-        return lnw + 4
+    def line_kind_prefix_len(kind: str) -> int:
+        return 10
+
+    def highlight_diff_prefix_len(text_line: str) -> int:
+        if not text_line:
+            return line_kind_prefix_len("context")
+        if len(text_line) < 11:
+            return min(len(text_line), line_kind_prefix_len("context"))
+        if text_line[8:11] in {"  -", "  +", "  ~"}:
+            return 11
+        return line_kind_prefix_len("context")
+
+    def highlight_one_line(line: str) -> Text:
+        s = Syntax(line, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
+        segs = list(s.highlight(line))
+        return Text.assemble(*segs)
+
+    def apply_bg_to_range(t: Text, bg: str, start: int, end: int):
+        if start >= end:
+            return
+        t.stylize(f"on {bg}", start, end)
+
+    def apply_kind_bg(t: Text, kind: str):
+        bg = bg_for_kind(kind)
+        apply_bg_to_range(t, bg, 0, len(t.plain))
+
+    def apply_inline_replace_bg(t: Text, kind: str):
+        if kind != "replace":
+            return
+        bg = bg_for_kind(kind)
+        end = min(highlight_diff_prefix_len(t.plain), len(t.plain))
+        apply_bg_to_range(t, bg, 0, end)
+
+    def merge_replace_line(base: Text, replace_line: Text) -> Text:
+        prefix_len = min(highlight_diff_prefix_len(base.plain), len(base.plain))
+        out = Text(base.plain[:prefix_len])
+        out.stylize_ranges(base._spans)
+        out.append(replace_line)
+        return out
 
     padded = list(map(lambda kl: (kl[0], pad_text_to_console_width(kl[1])), lines))
-    joined = "\n".join(map(lambda kl: to_markup_line(kl[1]), padded))
 
-    syntax = Syntax(joined, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
+    def render_line(kl: tuple[str, Text]) -> Text:
+        kind, t = kl
+        plain = t.plain
+        base = highlight_one_line(plain)
+        apply_kind_bg(base, kind)
+        if kind != "replace":
+            return base
 
-    def apply_kind_bg(i: int, kind: str):
-        bg = bg_for_kind(kind)
-        if kind == "replace":
-            end = min(prefix_len_for_kind(kind), len(syntax.code.splitlines()[i]) if syntax.code else 0)
-            syntax.stylize_range(f"on {bg}", (i, 0), (i, end))
-            return
-        syntax.stylize_range(f"on {bg}", (i, 0), (i, len(syntax.code.splitlines()[i]) if syntax.code else 0))
+        prefix_len = min(highlight_diff_prefix_len(plain), len(plain))
+        inline = Text.assemble(*Syntax(plain[prefix_len:], "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False).highlight(plain[prefix_len:]))
+        merged = Text.assemble(base.plain[:prefix_len], inline)
+        apply_inline_replace_bg(merged, kind)
 
-    for i, (kind, _) in enumerate(padded):
-        apply_kind_bg(i, kind)
+        inline_src = plain[prefix_len:]
+        start = inline_src.find("~ ")
+        if start < 0:
+            return merged
+        start += 2
+        inline_old = inline_src[start:]
+        repl_text = rich_inline_diff(inline_old, inline_old)
+        if repl_text.plain == inline_old:
+            return merged
+        replaced = Text.assemble(merged.plain[:prefix_len + start], repl_text)
+        apply_inline_replace_bg(replaced, kind)
+        return replaced
 
-    console.print(syntax)
+    rendered = list(map(render_line, padded))
+
+    for t in rendered:
+        console.print(t)
 
 def unified_diff_lines(
     old_text: str,
