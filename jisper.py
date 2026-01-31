@@ -3,14 +3,12 @@ import os
 import json5 as json
 import difflib
 from pathlib import Path
-import re
 import git
 import typer
 from rich import print
 from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
-from rich.style import Style
 
 console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
@@ -317,124 +315,6 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
     model_out = json.loads(api_json["choices"][0]["message"]["content"])
     return (model_out, usage, model_code)
 
-def tokenize_for_intraline_diff(s: str) -> list[str]:
-    """Split text into tokens suitable for stable intraline diff highlighting."""
-    parts = re.findall(r"\s+|[A-Za-z0-9_]+|[^\w\s]", s, flags=re.UNICODE)
-    return parts
-
-
-def is_trivial_separator_token(tok: str) -> bool:
-    """Return True for whitespace/punctuation tokens that can be bridged between changes."""
-    if not tok:
-        return True
-    if tok.isspace():
-        return True
-    return tok in {".", ",", ":", ";", "(", ")", "[", "]", "{", "}", "=", "->"}
-
-
-def merge_change_opcodes(
-    opcodes: list[tuple[str, int, int, int, int]],
-    a_tokens: list[str],
-    b_tokens: list[str],
-) -> list[tuple[str, int, int, int, int]]:
-    """Merge nearby opcode spans to reduce fragmentation in intraline diffs."""
-    merged: list[tuple[str, int, int, int, int]] = []
-
-    def can_bridge_equal(i1: int, i2: int, j1: int, j2: int) -> bool:
-        if i2 - i1 != j2 - j1:
-            return False
-        eq_a = a_tokens[i1:i2]
-        eq_b = b_tokens[j1:j2]
-        if eq_a != eq_b:
-            return False
-        return all(map(is_trivial_separator_token, eq_a))
-
-    def push(tag: str, i1: int, i2: int, j1: int, j2: int):
-        if not merged:
-            merged.append((tag, i1, i2, j1, j2))
-            return
-        ptag, pi1, pi2, pj1, pj2 = merged[-1]
-        if ptag == tag:
-            merged[-1] = (ptag, pi1, i2, pj1, j2)
-            return
-        merged.append((tag, i1, i2, j1, j2))
-
-    i = 0
-    while i < len(opcodes):
-        tag, i1, i2, j1, j2 = opcodes[i]
-
-        if tag == "equal":
-            push(tag, i1, i2, j1, j2)
-            i += 1
-            continue
-
-        start_i1, start_j1 = i1, j1
-        end_i2, end_j2 = i2, j2
-        i += 1
-
-        while i < len(opcodes):
-            ntag, ni1, ni2, nj1, nj2 = opcodes[i]
-            if ntag in {"delete", "insert", "replace"}:
-                end_i2, end_j2 = ni2, nj2
-                i += 1
-                continue
-
-            if ntag == "equal" and can_bridge_equal(ni1, ni2, nj1, nj2):
-                end_i2, end_j2 = ni2, nj2
-                i += 1
-                continue
-
-            break
-
-        push("replace", start_i1, end_i2, start_j1, end_j2)
-
-    return merged
-
-
-def rich_inline_diff(old: str, new: str) -> Text:
-    """Rich Text with inline diff highlighting using background colors.
-
-    Produces a single line where unchanged spans render normally, deleted spans
-    render with a delete background, and inserted spans render with an add
-    background.
-    """
-    a_tokens = tokenize_for_intraline_diff(old)
-    b_tokens = tokenize_for_intraline_diff(new)
-
-    sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
-    opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
-
-    del_style = Style(bgcolor="#4a1414")
-    add_style = Style(bgcolor="#0f3d0f")
-
-    def join_tokens(tokens: list[str], a: int, b: int) -> str:
-        return "".join(tokens[a:b])
-
-    def append_if(out: Text, s: str, style: Style | None = None) -> Text:
-        if not s:
-            return out
-        out.append(s, style=style)
-        return out
-
-    out = Text()
-
-    for tag, i1, i2, j1, j2 in opcodes:
-        if tag == "equal":
-            out = append_if(out, join_tokens(a_tokens, i1, i2), None)
-            continue
-        if tag == "delete":
-            out = append_if(out, join_tokens(a_tokens, i1, i2), del_style)
-            continue
-        if tag == "insert":
-            out = append_if(out, join_tokens(b_tokens, j1, j2), add_style)
-            continue
-        if tag == "replace":
-            out = append_if(out, join_tokens(a_tokens, i1, i2), del_style)
-            out = append_if(out, join_tokens(b_tokens, j1, j2), add_style)
-            continue
-
-    return out
-
 
 def find_substring_start_line(haystack: str, needle: str) -> int | None:
     """Return 1-based line number where needle begins in haystack, or None."""
@@ -493,10 +373,6 @@ def format_combined_diff_lines(
     def push(kind: str, line: Text):
         out.append((kind, line))
 
-    def replace_line(new_ln_v: int, old_body: str, new_body: str) -> Text:
-        prefix = Text(f"{fmt_ln(new_ln_v)} ~ ", style="bold")
-        return prefix + rich_inline_diff(old_body, new_body)
-
     pending_minus: str | None = None
 
     for line in diff_lines:
@@ -525,11 +401,9 @@ def format_combined_diff_lines(
 
         if prefix == "+":
             if pending_minus is not None:
-                push("replace", replace_line(new_ln, pending_minus[1:], body))
+                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
                 pending_minus = None
                 old_ln += 1
-                new_ln += 1
-                continue
             push("insert", Text(f"{fmt_ln(new_ln)} + {body}"))
             new_ln += 1
             continue
@@ -647,7 +521,7 @@ def print_intraline_diff(
     context_lines: int = 3,
     title: str | None = None,
 ):
-    """Print a compact diff view for two standalone strings."""
+    """Print a compact per-line diff view for two standalone strings."""
     print_numbered_combined_diff(
         old_text,
         new_text,
