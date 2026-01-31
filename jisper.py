@@ -16,7 +16,7 @@ def make_console() -> Console:
 console = make_console()
 app = typer.Typer(add_completion=False)
 
-DEFAULT_PROMPT_FILE = 'prompt.json'
+DEFAULT_PROMPT_FILE = "prompt.json"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
@@ -27,6 +27,42 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
 }
+
+def as_non_empty_str(v) -> str | None:
+    if isinstance(v, str):
+        s = v.strip()
+        return s or None
+    return None
+
+def dict_get(d: dict | None, key: str, default=None):
+    if not isinstance(d, dict):
+        return default
+    return d.get(key, default)
+
+def coerce_int(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str):
+        s = v.strip()
+        return int(s) if s.isdigit() else None
+    return None
+
+def lower_keys(d: dict | None) -> dict:
+    return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
+
+def read_text_or_none(path: Path) -> str | None:
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+def read_json5(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+def env_non_empty(name: str) -> str | None:
+    return as_non_empty_str(os.getenv(name or ""))
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -83,36 +119,24 @@ def main(
     in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
     print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
 
-def get_non_empty_str(v) -> str | None:
-    """Return a stripped string when the input is a non-empty string, otherwise None."""
-    if isinstance(v, str) and v.strip():
-        return v.strip()
-    return None
-
-
 def get_base_config_value(config: dict, key: str, default: str) -> str:
-    """Read a string config value with fallback to a provided default."""
-    return get_non_empty_str(config.get(key)) or default
+    return as_non_empty_str(dict_get(config, key)) or default
 
 
 def get_model_code(config: dict) -> str:
-    """Return the configured model code or the default model."""
     return get_base_config_value(config, "model", DEFAULT_MODEL)
 
 
 def get_api_key_env_var_name(config: dict) -> str:
-    """Return the environment variable name used to read the API key."""
     return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
 
 
 def get_endpoint_url(config: dict) -> str:
-    """Return the API endpoint URL from config with a default fallback."""
     return get_base_config_value(config, "endpoint", DEFAULT_URL)
 
 
 def get_api_key_from_env(env_var_name: str) -> str | None:
-    """Read and normalize an API key from an environment variable."""
-    return get_non_empty_str(os.getenv(env_var_name or ""))
+    return env_non_empty(env_var_name)
 
 def is_file_header_line(line: str) -> bool:
     """Return True for unified-diff file header lines (---/+++)."""
@@ -149,30 +173,18 @@ def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = No
     return t
 
 def get_nested_str(d: dict, path: list[str]) -> str | None:
-    """Safely read and normalize a nested non-empty string value from a dict path."""
     cur = d
     for k in path:
         if not isinstance(cur, dict):
             return None
         cur = cur.get(k)
-    if isinstance(cur, str) and cur.strip():
-        return cur.strip()
-    return None
+    return as_non_empty_str(cur)
 
 def load_prompt_file(path: Path) -> dict:
-    """Load the prompt/config JSON5 file."""
-    with path.open("r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except:
-            print("[bold red]< json syntax error >[/bold red]")
-            exit(1)
+    return read_json5(path)
 
 def read_file_text_or_none(path: Path) -> str | None:
-    """Return a file's UTF-8 text content if it exists, otherwise None."""
-    if not path.exists():
-        return None
-    return path.read_text(encoding="utf-8")
+    return read_text_or_none(path)
 
 
 def read_and_concatenate_files(file_list):
@@ -217,53 +229,23 @@ def build_payload(prompt_config: dict, source_text: str):
 
     return payload
 
-def get_int_from_any(v) -> int | None:
-    """Coerce common JSON-like values into an int when safely possible."""
-    if isinstance(v, bool):
-        return None
-    if isinstance(v, int):
-        return v
-    if isinstance(v, float) and v.is_integer():
-        return int(v)
-    if isinstance(v, str):
-        s = v.strip()
-        if s.isdigit():
-            return int(s)
-    return None
-
-
-def safe_get(d: dict, key: str):
-    """Get a key from a dict, returning None for non-dict inputs."""
-    if not isinstance(d, dict):
-        return None
-    return d.get(key)
-
-
-def lower_keyed_dict(d: dict | None) -> dict:
-    """Return a copy of a mapping with string-lowered keys for case-insensitive lookup."""
-    return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
 
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
-    """Extract token usage counts from the API JSON and/or response headers."""
-    usage = safe_get(api_json, "usage")
-    prompt_tokens = get_int_from_any(safe_get(usage, "prompt_tokens"))
-    completion_tokens = get_int_from_any(safe_get(usage, "completion_tokens"))
-    total_tokens = get_int_from_any(safe_get(usage, "total_tokens"))
+    usage = dict_get(api_json, "usage")
+    prompt_tokens = coerce_int(dict_get(usage, "prompt_tokens"))
+    completion_tokens = coerce_int(dict_get(usage, "completion_tokens"))
+    total_tokens = coerce_int(dict_get(usage, "total_tokens"))
 
-    header_map = lower_keyed_dict(response_headers)
-    prompt_tokens = prompt_tokens or get_int_from_any(header_map.get("x-openai-prompt-tokens"))
-    completion_tokens = completion_tokens or get_int_from_any(header_map.get("x-openai-completion-tokens"))
-    total_tokens = total_tokens or get_int_from_any(header_map.get("x-openai-total-tokens"))
+    header_map = lower_keys(response_headers)
+    prompt_tokens = prompt_tokens or coerce_int(header_map.get("x-openai-prompt-tokens"))
+    completion_tokens = completion_tokens or coerce_int(header_map.get("x-openai-completion-tokens"))
+    total_tokens = total_tokens or coerce_int(header_map.get("x-openai-total-tokens"))
 
     if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
         total_tokens = prompt_tokens + completion_tokens
 
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
+    return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
 
 
 def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
@@ -297,13 +279,10 @@ def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, 
 
 
 def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
-    """Format a single dim cost line for display from usage and pricing."""
-    pt = usage.get("prompt_tokens")
-    ct = usage.get("completion_tokens")
-    cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m)
-
-    cost_s = f"${cost:.4f}"
-    return f"[bright_black]{cost_s}[/bright_black]"
+    pt = dict_get(usage, "prompt_tokens")
+    ct = dict_get(usage, "completion_tokens")
+    cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
+    return f"[bright_black]${cost:.4f}[/bright_black]"
 
 
 def run(config_path: Path) -> tuple[dict, dict, str]:
@@ -441,7 +420,7 @@ def format_combined_diff_lines(
                 push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
                 pending_minus = None
-            push("context", numbered_line(new_ln, style="bright_black", mid="   ", body=body))
+            push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
             old_ln += 1
             new_ln += 1
             continue
@@ -522,85 +501,69 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
     )
 
 
+def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
+    def replace_if(haystack: str, needle: str) -> str | None:
+        return haystack.replace(needle, new_string) if needle and needle in haystack else None
+
+    updated = replace_if(original, old_string)
+    matched_old = old_string
+
+    if updated is None:
+        trimmed_old = old_string.strip()
+        updated = replace_if(original, trimmed_old) if trimmed_old and trimmed_old != old_string else None
+        matched_old = trimmed_old if updated is not None else matched_old
+
+    if updated is None:
+        stripped_original = original.strip()
+        trimmed_old = old_string.strip()
+        if stripped_original and trimmed_old and trimmed_old in stripped_original:
+            leading = original[: len(original) - len(original.lstrip())]
+            trailing = original[len(original.rstrip()):]
+            replaced_core = stripped_original.replace(trimmed_old, new_string)
+            updated = f"{leading}{replaced_core}{trailing}"
+            matched_old = trimmed_old
+
+    return (updated, matched_old)
+
+
 def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
-    """Apply {filename, old_string, new_string} edits to files on disk.
-
-    Returns a list of Paths that were modified.
-    """
+    """Apply {filename, old_string, new_string} edits to files on disk."""
     base_dir = base_dir or Path.cwd()
-    changed: list[Path] = []
 
-    for i, r in enumerate(replacements or []):
-        filename = r.get("filename")
-        old_string = r.get("old_string")
-        new_string = r.get("new_string")
+    def apply_one(i_r) -> Path | None:
+        i, r = i_r
+        filename = dict_get(r, "filename")
+        old_string = dict_get(r, "old_string")
+        new_string = dict_get(r, "new_string")
 
         if not filename:
             print(f"[red]Replacement #{i} missing filename; skipping[/red]")
-            continue
+            return None
         if old_string is None or new_string is None:
             print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
-            continue
-
-        target_path = (base_dir / filename).resolve()
-        if not target_path.exists():
-            print(f"[red]Target file not found: {target_path}[/red]")
-            continue
-
-        original = target_path.read_text(encoding="utf-8")
-
-        def apply_if_found(haystack: str, needle: str) -> str | None:
-            if needle in haystack:
-                return haystack.replace(needle, new_string)
             return None
 
-        # 1) Exact match
-        updated = apply_if_found(original, old_string)
+        target_path = (base_dir / filename).resolve()
+        original = read_text_or_none(target_path)
+        if original is None:
+            print(f"[red]Target file not found: {target_path}[/red]")
+            return None
 
-        # 2) Retry with trimmed old_string (common failure: extra leading/trailing newlines)
-        matched_old = old_string
-        if updated is None:
-            trimmed_old = old_string.strip()
-            if trimmed_old and trimmed_old != old_string:
-                updated = apply_if_found(original, trimmed_old)
-                if updated is not None:
-                    matched_old = trimmed_old
-
-        # 3) Retry on stripped file content; preserve original outer whitespace
-        if updated is None:
-            stripped_original = original.strip()
-            trimmed_old = old_string.strip()
-            if stripped_original and trimmed_old and trimmed_old in stripped_original:
-                leading = original[: len(original) - len(original.lstrip())]
-                trailing = original[len(original.rstrip()):]
-                replaced_core = stripped_original.replace(trimmed_old, new_string)
-                updated = f"{leading}{replaced_core}{trailing}"
-                matched_old = trimmed_old
-
+        updated, matched_old = apply_one_replacement(original, old_string, new_string)
         if updated is None:
             print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
-            # Still show what it *wanted* to do, for debugging.
-            print_numbered_combined_diff(
-                old_string,
-                new_string,
-                from_start=1,
-                to_start=1,
-                context_lines=2,
-                title="Replacement text (preview)",
-            )
-            continue
+            print_numbered_combined_diff(old_string, new_string, from_start=1, to_start=1, context_lines=2, title="Replacement text (preview)")
+            return None
 
         if updated == original:
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
-            continue
+            return None
 
-        # Show very clear diff previews before writing.
         print_change_preview(filename, matched_old, new_string, original, updated)
-
         target_path.write_text(updated, encoding="utf-8")
-        changed.append(target_path)
+        return target_path
 
-    return changed
+    return list(filter(None, map(apply_one, enumerate(replacements or []))))
 
 
 def print_model_change_notes(model_output: dict):
@@ -678,15 +641,11 @@ def redo_last_commit(base_dir: Path) -> int:
         print("No commits to redo")
         return 1
 
-    orig_head = None
-    try:
-        orig_head = repo.commit("ORIG_HEAD")
-    except Exception:
-        orig_head = None
-
-    if orig_head is None:
+    if not (Path(repo.git_dir) / "ORIG_HEAD").exists():
         print("No ORIG_HEAD found to redo to")
         return 1
+
+    orig_head = repo.commit("ORIG_HEAD")
 
     if orig_head.hexsha == repo.head.commit.hexsha:
         print("Already at the most recent commit")
