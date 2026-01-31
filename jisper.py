@@ -12,7 +12,6 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.style import Style
 
-
 console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
 
@@ -405,13 +404,13 @@ def rich_inline_diff(old: str, new: str) -> Text:
     sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
-    def bg_style(bg: str) -> Style:
-        return Style(bgcolor=bg)
+    def on_bg(bg: str) -> str:
+        return f"on {bg}" if bg else ""
 
-    del_style = bg_style("#4a1414")
-    add_style = bg_style("#0f3d0f")
+    del_style = on_bg("#4a1414")
+    add_style = on_bg("#0f3d0f")
 
-    def append_bg(s: str, style: Style):
+    def append_bg(s: str, style: str):
         if s:
             t.append(s, style=style)
 
