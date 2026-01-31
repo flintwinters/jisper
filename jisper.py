@@ -406,15 +406,14 @@ def rich_inline_diff(old: str, new: str) -> Text:
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
     def bg_style(bg: str) -> Style:
-        return Style.parse(f"on {bg}")
+        return Style(bgcolor=bg)
 
     del_style = bg_style("#4a1414")
     add_style = bg_style("#0f3d0f")
 
     def append_bg(s: str, style: Style):
-        if not s:
-            return
-        t.append(s, style=style)
+        if s:
+            t.append(s, style=style)
 
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
