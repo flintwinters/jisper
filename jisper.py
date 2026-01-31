@@ -8,9 +8,10 @@ import typer
 from rich import print
 from rich.console import Console
 from rich.text import Text
+from rich.syntax import Syntax
 
 def make_console() -> Console:
-    return Console(soft_wrap=False, markup=False, highlight=False)
+    return Console(soft_wrap=False, markup=False, highlight=False, no_color=False)
 
 console = make_console()
 app = typer.Typer(add_completion=False)
@@ -368,6 +369,37 @@ def unified_diff_lines(
     return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
 
 
+def guess_syntax_lexer_name(text: str) -> str:
+    sample = "\n".join(text.splitlines()[:50]).lower()
+
+    looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or "@@" in sample
+    if looks_like_diff:
+        return "diff"
+
+    looks_like_json = sample.startswith("{") or sample.startswith("[")
+    if looks_like_json:
+        return "json"
+
+    looks_like_python = "def " in sample or "import " in sample or "class " in sample
+    if looks_like_python:
+        return "python"
+
+    return "text"
+
+
+def syntax_text(body: str, *, lexer_name: str) -> Text:
+    s = Syntax(
+        body,
+        lexer_name,
+        theme="ansi_dark",
+        line_numbers=False,
+        word_wrap=False,
+        code_width=0,
+        indent_guides=False,
+    )
+    return s.highlight(body)
+
+
 def format_combined_diff_lines(
     old_text: str,
     new_text: str,
@@ -375,6 +407,7 @@ def format_combined_diff_lines(
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
+    lexer_name: str | None = None,
 ) -> list[tuple[str, Text]]:
     """Render unified-diff output into typed Rich Text lines with line numbers."""
     diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
@@ -383,12 +416,15 @@ def format_combined_diff_lines(
     old_ln = from_start
     new_ln = to_start
 
+    guessed_lexer = lexer_name or guess_syntax_lexer_name(new_text or old_text)
+
     def push(kind: str, line: Text):
         out.append((kind, line))
 
     def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str) -> Text:
         ln_t = styled_line_number(ln, style=style)
-        return ln_t + Text(mid + body)
+        body_t = syntax_text(body, lexer_name=guessed_lexer)
+        return ln_t + Text(mid) + body_t
 
     pending_minus: str | None = None
 
@@ -445,6 +481,7 @@ def print_numbered_combined_diff(
     to_start: int = 1,
     context_lines: int = 3,
     title: str | None = None,
+    lexer_name: str | None = None,
 ):
     """Print a numbered, colorized combined diff between two text blocks."""
     if title:
@@ -456,6 +493,7 @@ def print_numbered_combined_diff(
         from_start=from_start,
         to_start=to_start,
         context_lines=context_lines,
+        lexer_name=lexer_name,
     )
 
     if not lines:
