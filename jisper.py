@@ -312,67 +312,141 @@ def print_numbered_unified_diff(
     console.print(Syntax("\n".join(lines), "diff", theme="ansi_dark", line_numbers=False))
 
 
-def print_intrline_highlights_from_unified_diff(diff_lines: list[str]):
-    """Print intra-line red/green highlights for changed diff lines.
+def format_numbered_combined_diff(
+    old_text: str,
+    new_text: str,
+    *,
+    fromfile: str,
+    tofile: str,
+    from_start: int = 1,
+    to_start: int = 1,
+    context_lines: int = 3,
+) -> list[Text]:
+    """Return a single combined diff with line numbers and intra-line highlights.
 
-    For paired '-' and '+' lines, prints a *single* line that contains:
-    - unchanged text normally
-    - deletions in red
-    - insertions in green
-
-    This avoids printing both the old and new lines.
+    Output is based on unified diff lines, but paired '-'/'+' lines are merged into
+    a single '~' line with rich inline highlighting.
     """
+    diff_lines = unified_diff_lines(
+        old_text,
+        new_text,
+        fromfile=fromfile,
+        tofile=tofile,
+        context_lines=context_lines,
+    )
+
+    out: list[Text] = []
+    new_ln = to_start
+
+    def fmt_ln(ln: int | None) -> str:
+        return f"{ln:>6}" if ln is not None else "      "
+
+    def push_header(line: str):
+        out.append(Text(line))
+
+    def push_context(text: str):
+        nonlocal new_ln
+        out.append(Text(f"{fmt_ln(new_ln)}    {text}"))
+        new_ln += 1
+
+    def push_delete(text: str):
+        out.append(Text(f"{fmt_ln(None)}  - ", style="bold red") + rich_inline_diff(text, ""))
+
+    def push_insert(text: str):
+        nonlocal new_ln
+        out.append(Text(f"{fmt_ln(new_ln)}  + ", style="bold green") + rich_inline_diff("", text))
+        new_ln += 1
+
+    def push_replace(old_line: str, new_line: str):
+        nonlocal new_ln
+        merged_prefix = Text(f"{fmt_ln(new_ln)}  ~ ", style="bold")
+        out.append(merged_prefix + rich_inline_diff(old_line, new_line))
+        new_ln += 1
+
+    def is_hunk_header(line: str) -> bool:
+        return line.startswith("@@")
+
+    def is_file_header(line: str) -> bool:
+        return line.startswith("---") or line.startswith("+++")
+
     pending_minus: str | None = None
 
-    def emit_minus_only(line: str):
-        # Deletion without a paired insertion.
-        content = line[1:]
-        console.print(Text("- ", style="bold red") + rich_inline_diff(content, ""))
-
-    def emit_plus_only(line: str):
-        # Insertion without a paired deletion.
-        content = line[1:]
-        console.print(Text("+ ", style="bold green") + rich_inline_diff("", content))
-
-    def emit_paired_change(old_line: str, new_line: str):
-        # Single-line representation of change.
-        old = old_line[1:]
-        new = new_line[1:]
-        console.print(Text("~ ", style="bold") + rich_inline_diff(old, new))
-
     for line in diff_lines:
-        if line.startswith("@@") or line.startswith("---") or line.startswith("+++"):
+        if is_file_header(line) or is_hunk_header(line):
             if pending_minus is not None:
-                emit_minus_only(pending_minus)
+                push_delete(pending_minus[1:])
                 pending_minus = None
+            push_header(line)
             continue
 
         if not line:
             continue
 
         prefix = line[:1]
+        body = line[1:]
+
+        if prefix == " ":
+            if pending_minus is not None:
+                push_delete(pending_minus[1:])
+                pending_minus = None
+            push_context(body)
+            continue
+
         if prefix == "-":
             if pending_minus is not None:
-                emit_minus_only(pending_minus)
+                push_delete(pending_minus[1:])
             pending_minus = line
             continue
 
         if prefix == "+":
             if pending_minus is not None:
-                emit_paired_change(pending_minus, line)
+                push_replace(pending_minus[1:], body)
                 pending_minus = None
             else:
-                emit_plus_only(line)
+                push_insert(body)
             continue
 
-        # context line
         if pending_minus is not None:
-            emit_minus_only(pending_minus)
+            push_delete(pending_minus[1:])
             pending_minus = None
+        push_header(line)
 
     if pending_minus is not None:
-        emit_minus_only(pending_minus)
+        push_delete(pending_minus[1:])
 
+    return out
+
+
+def print_numbered_combined_diff(
+    old_text: str,
+    new_text: str,
+    *,
+    fromfile: str,
+    tofile: str,
+    from_start: int = 1,
+    to_start: int = 1,
+    context_lines: int = 3,
+    title: str | None = None,
+):
+    if title:
+        console.print(f"\n[bold]{title}[/bold]")
+
+    lines = format_numbered_combined_diff(
+        old_text,
+        new_text,
+        fromfile=fromfile,
+        tofile=tofile,
+        from_start=from_start,
+        to_start=to_start,
+        context_lines=context_lines,
+    )
+
+    if not lines:
+        console.print("[yellow](no diff; contents are identical)[/yellow]")
+        return
+
+    for t in lines:
+        console.print(t)
 
 def unified_diff_lines(
     old_text: str,
@@ -405,23 +479,17 @@ def print_intraline_diff(
     context_lines: int = 3,
     title: str | None = None,
 ):
-    """Print only the intra-line diff view (no full unified diff output)."""
-    if title:
-        console.print(f"\n[bold]{title}[/bold]")
-
-    diff_lines = unified_diff_lines(
+    """Backward-compatible wrapper: print the combined diff view."""
+    print_numbered_combined_diff(
         old_text,
         new_text,
         fromfile=fromfile,
         tofile=tofile,
+        from_start=1,
+        to_start=1,
         context_lines=context_lines,
+        title=title,
     )
-
-    if not diff_lines:
-        console.print("[yellow](no diff; contents are identical)[/yellow]")
-        return
-
-    print_intrline_highlights_from_unified_diff(diff_lines)
 
 
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
@@ -431,7 +499,7 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
     old_start = line_info[0] if line_info else 1
     new_start = line_info[1] if line_info else 1
 
-    print_numbered_unified_diff(
+    print_numbered_combined_diff(
         old_string,
         new_string,
         fromfile=f"old_string ({filename})",
@@ -439,17 +507,7 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
         from_start=old_start,
         to_start=new_start,
         context_lines=2,
-        title="Replacement text (numbered unified diff)",
-    )
-
-    # Also show the concise intra-line diff view.
-    print_intraline_diff(
-        old_string,
-        new_string,
-        fromfile=f"old_string ({filename})",
-        tofile=f"new_string ({filename})",
-        context_lines=2,
-        title="Replacement text (intra-line highlights)",
+        title="Replacement text (combined diff)",
     )
 
 
