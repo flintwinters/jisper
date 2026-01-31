@@ -83,47 +83,58 @@ def main(
     print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
 
 def get_non_empty_str(v) -> str | None:
+    """Return a stripped string when the input is a non-empty string, otherwise None."""
     if isinstance(v, str) and v.strip():
         return v.strip()
     return None
 
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
+    """Read a string config value with fallback to a provided default."""
     return get_non_empty_str(config.get(key)) or default
 
 
 def get_model_code(config: dict) -> str:
+    """Return the configured model code or the default model."""
     return get_base_config_value(config, "model", DEFAULT_MODEL)
 
 
 def get_api_key_env_var_name(config: dict) -> str:
+    """Return the environment variable name used to read the API key."""
     return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
 
 
 def get_endpoint_url(config: dict) -> str:
+    """Return the API endpoint URL from config with a default fallback."""
     return get_base_config_value(config, "endpoint", DEFAULT_URL)
 
 
 def get_api_key_from_env(env_var_name: str) -> str | None:
+    """Read and normalize an API key from an environment variable."""
     return get_non_empty_str(os.getenv(env_var_name or ""))
 
 def is_file_header_line(line: str) -> bool:
+    """Return True for unified-diff file header lines (---/+++)."""
     return line.startswith("---") or line.startswith("+++")
 
 
 def is_hunk_header_line(line: str) -> bool:
+    """Return True for unified-diff hunk header lines (@@ ... @@)."""
     return line.startswith("@@")
 
 
 def is_diff_meta_line(line: str) -> bool:
+    """Return True for unified-diff metadata lines that are not content."""
     return is_file_header_line(line) or is_hunk_header_line(line)
 
 def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
+    """Format an optional line number into a fixed-width field for diff output."""
     if ln is None:
         return " " * width
     return f"{ln:>{width}}"
 
 def get_nested_str(d: dict, path: list[str]) -> str | None:
+    """Safely read and normalize a nested non-empty string value from a dict path."""
     cur = d
     for k in path:
         if not isinstance(cur, dict):
@@ -139,12 +150,14 @@ def load_prompt_file(path: Path) -> dict:
         return json.load(f)
 
 def read_file_text_or_none(path: Path) -> str | None:
+    """Return a file's UTF-8 text content if it exists, otherwise None."""
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
 
 
 def read_and_concatenate_files(file_list):
+    """Read a list of files and concatenate them into a single labeled source block."""
     def one(filename: str) -> str | None:
         p = Path(filename)
         txt = read_file_text_or_none(p)
@@ -156,6 +169,7 @@ def read_and_concatenate_files(file_list):
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
 def build_payload(prompt_config: dict, source_text: str):
+    """Build the chat-completions request payload from config and concatenated source text."""
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = prompt_config["task"]
@@ -185,6 +199,7 @@ def build_payload(prompt_config: dict, source_text: str):
     return payload
 
 def get_int_from_any(v) -> int | None:
+    """Coerce common JSON-like values into an int when safely possible."""
     if isinstance(v, bool):
         return None
     if isinstance(v, int):
@@ -199,16 +214,19 @@ def get_int_from_any(v) -> int | None:
 
 
 def safe_get(d: dict, key: str):
+    """Get a key from a dict, returning None for non-dict inputs."""
     if not isinstance(d, dict):
         return None
     return d.get(key)
 
 
 def lower_keyed_dict(d: dict | None) -> dict:
+    """Return a copy of a mapping with string-lowered keys for case-insensitive lookup."""
     return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
 
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
+    """Extract token usage counts from the API JSON and/or response headers."""
     usage = safe_get(api_json, "usage")
     prompt_tokens = get_int_from_any(safe_get(usage, "prompt_tokens"))
     completion_tokens = get_int_from_any(safe_get(usage, "completion_tokens"))
@@ -230,6 +248,7 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
 
 
 def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
+    """Resolve input/output token prices for a model from config, known defaults, or fallbacks."""
     conf_prices = config.get("model_prices_usd_per_1m")
     if isinstance(conf_prices, dict):
         v = conf_prices.get(model_code)
@@ -250,6 +269,7 @@ def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, f
 
 
 def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
+    """Estimate request cost in USD from token counts and per-1M pricing."""
     if prompt_tokens is None and completion_tokens is None:
         return None
     pt = float(prompt_tokens or 0)
@@ -258,6 +278,7 @@ def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, 
 
 
 def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
+    """Format a single dim cost line for display from usage and pricing."""
     pt = usage.get("prompt_tokens")
     ct = usage.get("completion_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m)
@@ -267,6 +288,7 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
 
 
 def run(config_path: Path) -> tuple[dict, dict, str]:
+    """Call the model API using the config file and return parsed output, usage, and model code."""
     config = load_prompt_file(config_path)
 
     endpoint_url = get_endpoint_url(config)
@@ -292,11 +314,13 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
     return (model_out, usage, model_code)
 
 def tokenize_for_intraline_diff(s: str) -> list[str]:
+    """Split text into tokens suitable for stable intraline diff highlighting."""
     parts = re.findall(r"\s+|[A-Za-z0-9_]+|[^\w\s]", s, flags=re.UNICODE)
     return parts
 
 
 def is_trivial_separator_token(tok: str) -> bool:
+    """Return True for whitespace/punctuation tokens that can be bridged between changes."""
     if not tok:
         return True
     if tok.isspace():
@@ -305,6 +329,7 @@ def is_trivial_separator_token(tok: str) -> bool:
 
 
 def merge_change_opcodes(
+    """Merge nearby opcode spans to reduce fragmentation in intraline diffs."""
     opcodes: list[tuple[str, int, int, int, int]],
     a_tokens: list[str],
     b_tokens: list[str],
@@ -424,10 +449,12 @@ def compute_replacement_line_numbers(original: str, matched_old: str, new_string
 
 
 def print_no_diff_notice():
+    """Print a standardized message indicating there is no diff to display."""
     console.print("[yellow](no diff; contents are identical)[/yellow]")
 
 
 def unified_diff_lines(
+    """Compute unified-diff lines between two strings with configurable context."""
     old_text: str,
     new_text: str,
     *,
@@ -439,6 +466,7 @@ def unified_diff_lines(
 
 
 def format_combined_diff_lines(
+    """Render unified-diff output into typed Rich Text lines with line numbers."""
     old_text: str,
     new_text: str,
     *,
@@ -508,6 +536,7 @@ def format_combined_diff_lines(
 
 
 def print_numbered_combined_diff(
+    """Print a numbered, colorized combined diff between two text blocks."""
     old_text: str,
     new_text: str,
     *,
@@ -594,6 +623,7 @@ def print_numbered_combined_diff(
         console.print(t)
 
 def print_intraline_diff(
+    """Print a compact diff view for two standalone strings."""
     old_text: str,
     new_text: str,
     *,
@@ -611,6 +641,7 @@ def print_intraline_diff(
 
 
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
+    """Print a focused diff preview of a pending replacement within a file."""
     line_info = compute_replacement_line_numbers(original, old_string, new_string)
     old_start = line_info[0] if line_info else 1
     new_start = line_info[1] if line_info else 1
@@ -714,6 +745,7 @@ def print_model_change_notes(model_output: dict):
 
 
 def extract_commit_message(model_output: dict) -> str | None:
+    """Extract a commit message from model output using common schema locations."""
     if not isinstance(model_output, dict):
         return None
 
@@ -721,6 +753,7 @@ def extract_commit_message(model_output: dict) -> str | None:
 
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
+    """Find and open the nearest git repository at or above a directory."""
     if (base_dir / ".git").exists():
         return git.Repo(base_dir)
 
@@ -734,6 +767,7 @@ def repo_from_dir(base_dir: Path) -> git.Repo | None:
 
 
 def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
+    """Stage a set of changed files and create a commit with the given message."""
     repo_root = Path(repo.working_tree_dir or ".").resolve()
     relpaths = list(map(lambda p: str(p.resolve().relative_to(repo_root)), changed_files))
     relpaths = list(filter(lambda s: bool(s and s.strip()), relpaths))
@@ -747,6 +781,7 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
 
 
 def undo_last_commit(base_dir: Path) -> int:
+    """Undo the most recent commit by resetting HEAD to its parent (mixed)."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
@@ -765,6 +800,7 @@ def undo_last_commit(base_dir: Path) -> int:
 
 
 def redo_last_commit(base_dir: Path) -> int:
+    """Redo an undone commit by fast-forwarding HEAD to ORIG_HEAD when available."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
