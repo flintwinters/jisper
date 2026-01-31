@@ -613,15 +613,15 @@ def print_numbered_combined_diff(
         inline_src = plain[prefix_len:]
         start = inline_src.find("~ ")
         if start < 0:
-            return prefix + highlight_one_line(inline_src)
+            return prefix + Text(inline_src)
 
         before = inline_src[: start + 2]
         body = inline_src[start + 2 :]
         old_body, new_body = (body.split(" => ", 1) + [""])[:2]
         if not new_body:
-            return prefix + highlight_one_line(inline_src)
+            return prefix + Text(inline_src)
 
-        return prefix + highlight_one_line(before) + rich_inline_diff(old_body, new_body)
+        return prefix + Text(before) + rich_inline_diff(old_body, new_body)
 
     for t in map(render, lines):
         console.print(t)
