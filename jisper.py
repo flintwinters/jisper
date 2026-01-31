@@ -124,11 +124,14 @@ def is_diff_meta_line(line: str) -> bool:
     """Return True for unified-diff metadata lines that are not content."""
     return is_file_header_line(line) or is_hunk_header_line(line)
 
-def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
+def format_fixed_width_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> str:
     """Format an optional line number into a fixed-width field for diff output."""
     if ln is None:
         return " " * width
-    return f"{ln:>{width}}"
+    s = f"{ln:>{width}}"
+    if not style:
+        return s
+    return f"[{style}]{s}[/{style}]"
 
 def get_nested_str(d: dict, path: list[str]) -> str | None:
     """Safely read and normalize a nested non-empty string value from a dict path."""
@@ -366,8 +369,8 @@ def format_combined_diff_lines(
     old_ln = from_start
     new_ln = to_start
 
-    def fmt_ln(ln: int | None) -> str:
-        return format_fixed_width_line_number(ln)
+    def fmt_ln(ln: int | None, style: str | None = None) -> str:
+        return format_fixed_width_line_number(ln, style=style)
 
     def push(kind: str, line: Text):
         out.append((kind, line))
@@ -383,7 +386,7 @@ def format_combined_diff_lines(
 
         if prefix == " ":
             if pending_minus is not None:
-                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+                push("delete", Text(f"{fmt_ln(old_ln, 'bright_red')} - {pending_minus[1:]}"))
                 old_ln += 1
                 pending_minus = None
             push("context", Text(f"{fmt_ln(new_ln)}   {body}"))
@@ -393,28 +396,28 @@ def format_combined_diff_lines(
 
         if prefix == "-":
             if pending_minus is not None:
-                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+                push("delete", Text(f"{fmt_ln(old_ln, 'bright_red')} - {pending_minus[1:]}"))
                 old_ln += 1
             pending_minus = line
             continue
 
         if prefix == "+":
             if pending_minus is not None:
-                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+                push("delete", Text(f"{fmt_ln(old_ln, 'bright_red')} - {pending_minus[1:]}"))
                 pending_minus = None
                 old_ln += 1
-            push("insert", Text(f"{fmt_ln(new_ln)} + {body}"))
+            push("insert", Text(f"{fmt_ln(new_ln, 'bright_green')} + {body}"))
             new_ln += 1
             continue
 
         if pending_minus is not None:
-            push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+            push("delete", Text(f"{fmt_ln(old_ln, 'bright_red')} - {pending_minus[1:]}"))
             old_ln += 1
             pending_minus = None
         push("header", Text(line))
 
     if pending_minus is not None:
-        push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+        push("delete", Text(f"{fmt_ln(old_ln, 'bright_red')} - {pending_minus[1:]}"))
 
     return out
 
