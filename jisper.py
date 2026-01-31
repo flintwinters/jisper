@@ -83,17 +83,23 @@ def main(
     in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
     print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
 
-def get_base_config_value(config: dict, key: str, default: str) -> str:
-    v = config.get(key)
+def get_non_empty_str(v) -> str | None:
     if isinstance(v, str) and v.strip():
         return v.strip()
-    return default
+    return None
+
+
+def get_base_config_value(config: dict, key: str, default: str) -> str:
+    return get_non_empty_str(config.get(key)) or default
+
 
 def get_model_code(config: dict) -> str:
     return get_base_config_value(config, "model", DEFAULT_MODEL)
 
+
 def get_api_key_env_var_name(config: dict) -> str:
     return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
+
 
 def get_endpoint_url(config: dict) -> str:
     return get_base_config_value(config, "endpoint", DEFAULT_URL)
@@ -101,10 +107,7 @@ def get_endpoint_url(config: dict) -> str:
 def get_api_key_from_env(env_var_name: str) -> str | None:
     if not env_var_name:
         return None
-    v = os.getenv(env_var_name)
-    if isinstance(v, str) and v.strip():
-        return v.strip()
-    return None
+    return get_non_empty_str(os.getenv(env_var_name))
 
 def is_file_header_line(line: str) -> bool:
     return line.startswith("---") or line.startswith("+++")
@@ -243,14 +246,10 @@ def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, 
 def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
     pt = usage.get("prompt_tokens")
     ct = usage.get("completion_tokens")
-    tt = usage.get("total_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m)
 
-    def fmt_int(v) -> str:
-        return str(v) if isinstance(v, int) else "?"
-
-    cost_s = f"${cost:.6f}" if isinstance(cost, float) else "$?"
-    return f"[gray]~{cost_s}[/gray]"
+    cost_s = f"${cost:.4f}"
+    return f"[bright_black]{cost_s}[/bright_black]"
 
 
 def run(config_path: Path) -> tuple[dict, dict, str]:
@@ -473,6 +472,10 @@ def format_numbered_unified_diff(
     return out_lines
 
 
+def print_no_diff_notice():
+    console.print("[yellow](no diff; contents are identical)[/yellow]")
+
+
 def print_numbered_unified_diff(
     old_text: str,
     new_text: str,
@@ -494,7 +497,7 @@ def print_numbered_unified_diff(
     )
 
     if not lines:
-        console.print("[yellow](no diff; contents are identical)[/yellow]")
+        print_no_diff_notice()
         return
 
     console.print(Syntax("\n".join(lines), "diff", theme="ansi_dark", line_numbers=False, word_wrap=False))
@@ -623,7 +626,7 @@ def print_numbered_combined_diff(
     )
 
     if not lines:
-        console.print("[yellow](no diff; contents are identical)[/yellow]")
+        print_no_diff_notice()
         return
 
     base_bg = "#2b2b2b"
