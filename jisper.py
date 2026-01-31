@@ -593,6 +593,12 @@ def print_numbered_combined_diff(
         out.append(" " * pad)
         return out
 
+    def prefix_len_for_kind(kind: str) -> int:
+        lnw = 6
+        if kind == "context":
+            return lnw + 4
+        return lnw + 4
+
     padded = list(map(lambda kl: (kl[0], pad_text_to_console_width(kl[1])), lines))
     joined = "\n".join(map(lambda kl: to_markup_line(kl[1]), padded))
 
@@ -600,6 +606,10 @@ def print_numbered_combined_diff(
 
     def apply_kind_bg(i: int, kind: str):
         bg = bg_for_kind(kind)
+        if kind == "replace":
+            end = min(prefix_len_for_kind(kind), len(syntax.code.splitlines()[i]) if syntax.code else 0)
+            syntax.stylize_range(f"on {bg}", (i, 0), (i, end))
+            return
         syntax.stylize_range(f"on {bg}", (i, 0), (i, len(syntax.code.splitlines()[i]) if syntax.code else 0))
 
     for i, (kind, _) in enumerate(padded):
