@@ -45,6 +45,27 @@ def get_api_key_from_env(env_var_name: str) -> str | None:
         return v.strip()
     return None
 
+def is_file_header_line(line: str) -> bool:
+    return line.startswith("---") or line.startswith("+++")
+
+def is_hunk_header_line(line: str) -> bool:
+    return line.startswith("@@")
+
+def format_fixed_width_line_number(ln: int | None, *, width: int = 6) -> str:
+    if ln is None:
+        return " " * width
+    return f"{ln:>{width}}"
+
+def get_nested_str(d: dict, path: list[str]) -> str | None:
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    if isinstance(cur, str) and cur.strip():
+        return cur.strip()
+    return None
+
 def load_prompt_file(path: Path) -> dict:
     """Load the prompt/config JSON5 file."""
     with path.open("r", encoding="utf-8") as f:
@@ -252,8 +273,6 @@ def format_numbered_unified_diff(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
@@ -265,8 +284,6 @@ def format_numbered_unified_diff(
         difflib.unified_diff(
             old_lines,
             new_lines,
-            fromfile=fromfile,
-            tofile=tofile,
             fromfiledate=f"line {from_start}",
             tofiledate=f"line {to_start}",
             lineterm="",
@@ -277,7 +294,7 @@ def format_numbered_unified_diff(
     new_ln = to_start
 
     def fmt(ln: int | None) -> str:
-        return f"{ln:>6}" if ln is not None else "      "
+        return format_fixed_width_line_number(ln)
 
     def format_body_line(prefix: str, text: str) -> str:
         nonlocal new_ln
@@ -295,10 +312,7 @@ def format_numbered_unified_diff(
 
     out_lines: list[str] = []
     for line in header:
-        if line.startswith("---") or line.startswith("+++"):
-            out_lines.append(line)
-            continue
-        if line.startswith("@@"):
+        if is_file_header_line(line) or is_hunk_header_line(line):
             out_lines.append(line)
             continue
         if not line:
@@ -316,8 +330,6 @@ def print_numbered_unified_diff(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
@@ -329,8 +341,6 @@ def print_numbered_unified_diff(
     lines = format_numbered_unified_diff(
         old_text,
         new_text,
-        fromfile=fromfile,
-        tofile=tofile,
         from_start=from_start,
         to_start=to_start,
         context_lines=context_lines,
@@ -347,8 +357,6 @@ def format_numbered_combined_diff(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
@@ -361,8 +369,6 @@ def format_numbered_combined_diff(
     diff_lines = unified_diff_lines(
         old_text,
         new_text,
-        fromfile=fromfile,
-        tofile=tofile,
         context_lines=context_lines,
     )
 
@@ -370,7 +376,7 @@ def format_numbered_combined_diff(
     new_ln = to_start
 
     def fmt_ln(ln: int | None) -> str:
-        return f"{ln:>6}" if ln is not None else "      "
+        return format_fixed_width_line_number(ln)
 
     def push_header(line: str):
         out.append(Text(line))
@@ -394,11 +400,8 @@ def format_numbered_combined_diff(
         out.append(merged_prefix + rich_inline_diff(old_line, new_line))
         new_ln += 1
 
-    def is_hunk_header(line: str) -> bool:
-        return line.startswith("@@")
-
-    def is_file_header(line: str) -> bool:
-        return line.startswith("---") or line.startswith("+++")
+    is_hunk_header = is_hunk_header_line
+    is_file_header = is_file_header_line
 
     pending_minus: str | None = None
 
@@ -452,8 +455,6 @@ def print_numbered_combined_diff(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
@@ -465,8 +466,6 @@ def print_numbered_combined_diff(
     lines = format_numbered_combined_diff(
         old_text,
         new_text,
-        fromfile=fromfile,
-        tofile=tofile,
         from_start=from_start,
         to_start=to_start,
         context_lines=context_lines,
@@ -483,8 +482,6 @@ def unified_diff_lines(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     context_lines: int = 3,
 ) -> list[str]:
     old_lines = old_text.splitlines(keepends=False)
@@ -493,8 +490,6 @@ def unified_diff_lines(
         difflib.unified_diff(
             old_lines,
             new_lines,
-            fromfile=fromfile,
-            tofile=tofile,
             lineterm="",
             n=context_lines,
         )
@@ -505,8 +500,6 @@ def print_intraline_diff(
     old_text: str,
     new_text: str,
     *,
-    fromfile: str,
-    tofile: str,
     context_lines: int = 3,
     title: str | None = None,
 ):
@@ -514,8 +507,6 @@ def print_intraline_diff(
     print_numbered_combined_diff(
         old_text,
         new_text,
-        fromfile=fromfile,
-        tofile=tofile,
         from_start=1,
         to_start=1,
         context_lines=context_lines,
@@ -533,12 +524,10 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
     print_numbered_combined_diff(
         old_string,
         new_string,
-        fromfile=f"old_string ({filename})",
-        tofile=f"new_string ({filename})",
         from_start=old_start,
         to_start=new_start,
         context_lines=2,
-        title="Replacement text (combined diff)",
+        title=f"{filename}",
     )
 
 
@@ -603,8 +592,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print_numbered_unified_diff(
                 old_string,
                 new_string,
-                fromfile=f"old_string ({filename})",
-                tofile=f"new_string ({filename})",
                 from_start=1,
                 to_start=1,
                 context_lines=2,
@@ -632,7 +619,6 @@ def print_model_change_notes(model_output: dict):
         return
 
     edits = model_output.get("edit") or {}
-    print("\nEdit explanation:")
     print(edits.get("explanation"))
 
 
@@ -640,16 +626,7 @@ def extract_commit_message(model_output: dict) -> str | None:
     if not isinstance(model_output, dict):
         return None
 
-    msg = model_output.get("commit_message")
-    if isinstance(msg, str) and msg.strip():
-        return msg.strip()
-
-    edits = model_output.get("edit") or {}
-    msg = edits.get("commit_message")
-    if isinstance(msg, str) and msg.strip():
-        return msg.strip()
-
-    return None
+    return get_nested_str(model_output, ["commit_message"]) or get_nested_str(model_output, ["edit", "commit_message"])
 
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
