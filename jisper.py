@@ -419,7 +419,7 @@ def format_combined_diff_lines(
     guessed_lexer = lexer_name or guess_syntax_lexer_name(new_text or old_text)
 
     def push(kind: str, line: Text):
-        out.append((kind, line))
+        out.append((kind, line[:-1]))
 
     def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str) -> Text:
         ln_t = styled_line_number(ln, style=style)
@@ -441,7 +441,7 @@ def format_combined_diff_lines(
                 push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
                 pending_minus = None
-            push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
+            push("context", numbered_line(new_ln, style="bright_black", mid="   ", body=body))
             old_ln += 1
             new_ln += 1
             continue
