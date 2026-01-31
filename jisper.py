@@ -308,8 +308,8 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
 
     payload = build_payload(config, concatenated_text)
 
-    print("[bright_black]Waiting for model...[/bright_black]")
-    response = requests.post(endpoint_url, headers=headers, json=payload)
+    with console.status("[bright_black]Waiting for model...[/bright_black]", spinner="dots"):
+        response = requests.post(endpoint_url, headers=headers, json=payload)
 
     api_json = response.json()
     model_code = get_model_code(config)
