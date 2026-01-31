@@ -1,4 +1,5 @@
 import json
+import os
 import amazon.ion.simpleion as ion
 
 
@@ -36,7 +37,8 @@ def ion_schema_to_json_schema(ion_schema):
 
 
 def main():
-    ion_data = load_ion("schema.ion")
+    schema_path = os.environ.get("SCHEMA_ION_PATH", "schema.ion")
+    ion_data = load_ion(schema_path)
     print(json.dumps(ion_schema_to_json_schema(ion_data), indent=2))
 
 
