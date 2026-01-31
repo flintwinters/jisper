@@ -437,7 +437,7 @@ def format_combined_diff_lines(
 
         if prefix == " ":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red", mid=" - ", body=pending_minus[1:]))
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
                 old_ln += 1
                 pending_minus = None
             push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
@@ -447,28 +447,28 @@ def format_combined_diff_lines(
 
         if prefix == "-":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red", mid=" - ", body=pending_minus[1:]))
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
                 old_ln += 1
             pending_minus = line
             continue
 
         if prefix == "+":
             if pending_minus is not None:
-                push("delete", numbered_line(old_ln, style="bright_red", mid=" - ", body=pending_minus[1:]))
+                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
                 pending_minus = None
                 old_ln += 1
-            push("insert", numbered_line(new_ln, style="bright_green", mid=" + ", body=body))
+            push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body))
             new_ln += 1
             continue
 
         if pending_minus is not None:
-            push("delete", numbered_line(old_ln, style="bright_red", mid=" - ", body=pending_minus[1:]))
+            push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
             old_ln += 1
             pending_minus = None
         push("header", Text(line))
 
     if pending_minus is not None:
-        push("delete", numbered_line(old_ln, style="bright_red", mid=" - ", body=pending_minus[1:]))
+        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
 
     return out
 
