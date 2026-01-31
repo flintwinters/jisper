@@ -13,7 +13,7 @@ from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
-console = Console(soft_wrap=True)
+console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
@@ -56,7 +56,7 @@ def is_file_header_line(line: str) -> bool:
 def is_hunk_header_line(line: str) -> bool:
     return line.startswith("@@")
 
-def format_fixed_width_line_number(ln: int | None, *, width: int = 6) -> str:
+def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
     if ln is None:
         return " " * width
     return f"{ln:>{width}}"
@@ -407,7 +407,6 @@ def format_numbered_unified_diff(
         if is_file_header_line(line) or is_hunk_header_line(line):
             continue
         if not line:
-            out_lines.append(line)
             continue
 
         prefix = line[:1]
@@ -464,6 +463,7 @@ def format_numbered_combined_diff(
     )
 
     out: list[tuple[str, Text]] = []
+    old_ln = from_start
     new_ln = to_start
 
     def fmt_ln(ln: int | None) -> str:
@@ -476,22 +476,26 @@ def format_numbered_combined_diff(
         push("header", Text(line))
 
     def push_context(text: str):
-        nonlocal new_ln
-        push("context", Text(f"{fmt_ln(new_ln)}    {text}"))
+        nonlocal old_ln, new_ln
+        push("context", Text(f"{fmt_ln(new_ln)}  {text}"))
+        old_ln += 1
         new_ln += 1
 
     def push_delete(text: str):
-        push("delete", Text(f"{fmt_ln(None)}  - {text}"))
+        nonlocal old_ln
+        push("delete", Text(f"{fmt_ln(old_ln)}- {text}"))
+        old_ln += 1
 
     def push_insert(text: str):
         nonlocal new_ln
-        push("insert", Text(f"{fmt_ln(new_ln)}  + {text}"))
+        push("insert", Text(f"{fmt_ln(new_ln)}+ {text}"))
         new_ln += 1
 
     def push_replace(old_line: str, new_line: str):
-        nonlocal new_ln
+        nonlocal old_ln, new_ln
         merged_prefix = Text(f"{fmt_ln(new_ln)}  ~ ", style="bold")
         push("replace", merged_prefix + rich_inline_diff(old_line, new_line))
+        old_ln += 1
         new_ln += 1
 
     is_hunk_header = is_hunk_header_line
