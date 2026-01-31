@@ -10,7 +10,6 @@ from rich import print
 from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
 console = Console(soft_wrap=False)
@@ -104,16 +103,20 @@ def get_api_key_env_var_name(config: dict) -> str:
 def get_endpoint_url(config: dict) -> str:
     return get_base_config_value(config, "endpoint", DEFAULT_URL)
 
+
 def get_api_key_from_env(env_var_name: str) -> str | None:
-    if not env_var_name:
-        return None
-    return get_non_empty_str(os.getenv(env_var_name))
+    return get_non_empty_str(os.getenv(env_var_name or ""))
 
 def is_file_header_line(line: str) -> bool:
     return line.startswith("---") or line.startswith("+++")
 
+
 def is_hunk_header_line(line: str) -> bool:
     return line.startswith("@@")
+
+
+def is_diff_meta_line(line: str) -> bool:
+    return is_file_header_line(line) or is_hunk_header_line(line)
 
 def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
     if ln is None:
@@ -135,15 +138,22 @@ def load_prompt_file(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
+def read_file_text_or_none(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
 def read_and_concatenate_files(file_list):
-    contents = []
-    for filename in file_list:
+    def one(filename: str) -> str | None:
         p = Path(filename)
-        if not p.exists():
+        txt = read_file_text_or_none(p)
+        if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
-            continue
-        contents.append(f"--- FILENAME: {p.name} ---\n{p.read_text(encoding='utf-8')}")
-    return "\n\n".join(contents)
+            return None
+        return f"--- FILENAME: {p.name} ---\n{txt}"
+
+    return "\n\n".join(filter(None, map(one, file_list or [])))
 
 def build_payload(prompt_config: dict, source_text: str):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
@@ -194,13 +204,17 @@ def safe_get(d: dict, key: str):
     return d.get(key)
 
 
+def lower_keyed_dict(d: dict | None) -> dict:
+    return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
+
+
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
     usage = safe_get(api_json, "usage")
     prompt_tokens = get_int_from_any(safe_get(usage, "prompt_tokens"))
     completion_tokens = get_int_from_any(safe_get(usage, "completion_tokens"))
     total_tokens = get_int_from_any(safe_get(usage, "total_tokens"))
 
-    header_map = dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (response_headers or {}).items()))
+    header_map = lower_keyed_dict(response_headers)
     prompt_tokens = prompt_tokens or get_int_from_any(header_map.get("x-openai-prompt-tokens"))
     completion_tokens = completion_tokens or get_int_from_any(header_map.get("x-openai-completion-tokens"))
     total_tokens = total_tokens or get_int_from_any(header_map.get("x-openai-total-tokens"))
@@ -259,8 +273,7 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
     api_key_env_var = get_api_key_env_var_name(config)
     api_key = get_api_key_from_env(api_key_env_var)
 
-    files_to_read = config["input_files"]
-    concatenated_text = read_and_concatenate_files(files_to_read)
+    concatenated_text = read_and_concatenate_files(config["input_files"])
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
@@ -269,14 +282,8 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
 
     payload = build_payload(config, concatenated_text)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=True,
-    ) as progress:
-        progress.add_task(description="Waiting for model...", total=None)
-        response = requests.post(endpoint_url, headers=headers, json=payload)
+    print("[bright_black]Waiting for model...[/bright_black]")
+    response = requests.post(endpoint_url, headers=headers, json=payload)
 
     api_json = response.json()
     model_code = get_model_code(config)
@@ -416,94 +423,22 @@ def compute_replacement_line_numbers(original: str, matched_old: str, new_string
     return (old_start, new_start)
 
 
-def format_numbered_unified_diff(
-    old_text: str,
-    new_text: str,
-    *,
-    from_start: int = 1,
-    to_start: int = 1,
-    context_lines: int = 3,
-) -> list[str]:
-    old_lines = old_text.splitlines(keepends=False)
-    new_lines = new_text.splitlines(keepends=False)
-
-    diff_lines = list(
-        difflib.unified_diff(
-            old_lines,
-            new_lines,
-            fromfiledate=f"line {from_start}",
-            tofiledate=f"line {to_start}",
-            lineterm="",
-            n=context_lines,
-        )
-    )
-
-    new_ln = to_start
-
-    def fmt(ln: int | None) -> str:
-        return format_fixed_width_line_number(ln)
-
-    def format_body_line(prefix: str, text: str) -> str:
-        nonlocal new_ln
-        if prefix == " ":
-            out = f"{fmt(new_ln)}  {prefix}{text}"
-            new_ln += 1
-            return out
-        if prefix == "-":
-            return f"{fmt(None)}  {prefix}{text}"
-        if prefix == "+":
-            out = f"{fmt(new_ln)}  {prefix}{text}"
-            new_ln += 1
-            return out
-        return f"{fmt(None)}  {prefix}{text}"
-
-    out_lines: list[str] = []
-    for line in diff_lines:
-        if is_file_header_line(line) or is_hunk_header_line(line):
-            continue
-        if not line:
-            out_lines.append(line)
-            continue
-
-        prefix = line[:1]
-        text = line[1:]
-        out_lines.append(format_body_line(prefix, text))
-
-    return out_lines
-
-
 def print_no_diff_notice():
     console.print("[yellow](no diff; contents are identical)[/yellow]")
 
 
-def print_numbered_unified_diff(
+def unified_diff_lines(
     old_text: str,
     new_text: str,
     *,
-    from_start: int = 1,
-    to_start: int = 1,
     context_lines: int = 3,
-    title: str | None = None,
-):
-    if title:
-        console.print(f"\n[bold]{title}[/bold]")
-
-    lines = format_numbered_unified_diff(
-        old_text,
-        new_text,
-        from_start=from_start,
-        to_start=to_start,
-        context_lines=context_lines,
-    )
-
-    if not lines:
-        print_no_diff_notice()
-        return
-
-    console.print(Syntax("\n".join(lines), "diff", theme="ansi_dark", line_numbers=False, word_wrap=False))
+) -> list[str]:
+    old_lines = old_text.splitlines(keepends=False)
+    new_lines = new_text.splitlines(keepends=False)
+    return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
 
 
-def format_numbered_combined_diff(
+def format_combined_diff_lines(
     old_text: str,
     new_text: str,
     *,
@@ -511,16 +446,7 @@ def format_numbered_combined_diff(
     to_start: int = 1,
     context_lines: int = 3,
 ) -> list[tuple[str, Text]]:
-    """Return a single combined diff with line numbers.
-
-    The first tuple element is a kind: context|delete|insert|replace|header.
-    The second element is a Rich Text line that includes the line-number column and prefix.
-    """
-    diff_lines = unified_diff_lines(
-        old_text,
-        new_text,
-        context_lines=context_lines,
-    )
+    diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
 
     out: list[tuple[str, Text]] = []
     old_ln = from_start
@@ -532,42 +458,10 @@ def format_numbered_combined_diff(
     def push(kind: str, line: Text):
         out.append((kind, line))
 
-    def push_header(line: str):
-        push("header", Text(line))
-
-    def push_context(text: str):
-        nonlocal old_ln, new_ln
-        push("context", Text(f"{fmt_ln(new_ln)}   {text}"))
-        old_ln += 1
-        new_ln += 1
-
-    def push_delete(text: str):
-        nonlocal old_ln
-        push("delete", Text(f"{fmt_ln(old_ln)} - {text}"))
-        old_ln += 1
-
-    def push_insert(text: str):
-        nonlocal new_ln
-        push("insert", Text(f"{fmt_ln(new_ln)} + {text}"))
-        new_ln += 1
-
-    def push_replace(old_line: str, new_line: str):
-        nonlocal old_ln, new_ln
-        merged_prefix = Text(f"{fmt_ln(new_ln)} ~ ", style="bold")
-        push("replace", merged_prefix + rich_inline_diff(old_line, new_line))
-        old_ln += 1
-        new_ln += 1
-
-    is_hunk_header = is_hunk_header_line
-    is_file_header = is_file_header_line
-
     pending_minus: str | None = None
 
     for line in diff_lines:
-        if is_file_header(line) or is_hunk_header(line):
-            continue
-
-        if not line:
+        if is_diff_meta_line(line) or not line:
             continue
 
         prefix = line[:1]
@@ -575,32 +469,40 @@ def format_numbered_combined_diff(
 
         if prefix == " ":
             if pending_minus is not None:
-                push_delete(pending_minus[1:])
+                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+                old_ln += 1
                 pending_minus = None
-            push_context(body)
+            push("context", Text(f"{fmt_ln(new_ln)}   {body}"))
+            old_ln += 1
+            new_ln += 1
             continue
 
         if prefix == "-":
             if pending_minus is not None:
-                push_delete(pending_minus[1:])
+                push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+                old_ln += 1
             pending_minus = line
             continue
 
         if prefix == "+":
             if pending_minus is not None:
-                push_replace(pending_minus[1:], body)
+                push("replace", Text(f"{fmt_ln(new_ln)} ~ ", style="bold") + rich_inline_diff(pending_minus[1:], body))
                 pending_minus = None
-            else:
-                push_insert(body)
+                old_ln += 1
+                new_ln += 1
+                continue
+            push("insert", Text(f"{fmt_ln(new_ln)} + {body}"))
+            new_ln += 1
             continue
 
         if pending_minus is not None:
-            push_delete(pending_minus[1:])
+            push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
+            old_ln += 1
             pending_minus = None
-        push_header(line)
+        push("header", Text(line))
 
     if pending_minus is not None:
-        push_delete(pending_minus[1:])
+        push("delete", Text(f"{fmt_ln(old_ln)} - {pending_minus[1:]}"))
 
     return out
 
@@ -617,7 +519,7 @@ def print_numbered_combined_diff(
     if title:
         console.print(f"\n[bold]{title}[/bold]")
 
-    lines = format_numbered_combined_diff(
+    lines = format_combined_diff_lines(
         old_text,
         new_text,
         from_start=from_start,
@@ -643,28 +545,9 @@ def print_numbered_combined_diff(
             return rep_bg
         return base_bg
 
-    def pad_text_to_console_width(t: Text) -> Text:
-        width = console.size.width
-        if width <= 0:
-            return t
-        pad = max(0, width - len(t.plain))
-        if pad <= 0:
-            return t
-        out = t.copy()
-        out.append(" " * pad)
-        return out
-
-    def line_kind_prefix_len(kind: str) -> int:
-        return 10
-
-    def highlight_diff_prefix_len(text_line: str) -> int:
-        if not text_line:
-            return line_kind_prefix_len("context")
-        if len(text_line) < 11:
-            return min(len(text_line), line_kind_prefix_len("context"))
-        if text_line[8:11] in {"  -", "  +", "  ~"}:
-            return 11
-        return line_kind_prefix_len("context")
+    def apply_bg(t: Text, bg: str):
+        if t.plain:
+            t.stylize(f"on {bg}", 0, len(t.plain))
 
     def highlight_one_line(line: str) -> Text:
         src = line[:-1] if line.endswith("\n") else line
@@ -675,86 +558,40 @@ def print_numbered_combined_diff(
             out = out[:-1]
         return out
 
-    def apply_bg_to_range(t: Text, bg: str, start: int, end: int):
-        if start >= end:
-            return
-        t.stylize(f"on {bg}", start, end)
+    def diff_prefix_len(text_line: str) -> int:
+        if not text_line:
+            return 10
+        if len(text_line) < 11:
+            return min(len(text_line), 10)
+        if text_line[8:11] in {"  -", "  +", "  ~"}:
+            return 11
+        return 10
 
-    def apply_kind_bg(t: Text, kind: str):
-        bg = bg_for_kind(kind)
-        apply_bg_to_range(t, bg, 0, len(t.plain))
-
-    def apply_inline_replace_bg(t: Text, kind: str):
-        if kind != "replace":
-            return
-        bg = bg_for_kind(kind)
-        end = min(highlight_diff_prefix_len(t.plain), len(t.plain))
-        apply_bg_to_range(t, bg, 0, end)
-
-    def merge_replace_line(base: Text, replace_line: Text) -> Text:
-        prefix_len = min(highlight_diff_prefix_len(base.plain), len(base.plain))
-        out = Text(base.plain[:prefix_len])
-        out.stylize_ranges(base._spans)
-        out.append(replace_line)
-        return out
-
-    padded = list(map(lambda kl: (kl[0], pad_text_to_console_width(kl[1])), lines))
-
-    def render_line(kl: tuple[str, Text]) -> Text:
-        kind, t = kl
+    def render(kind_and_text: tuple[str, Text]) -> Text:
+        kind, t = kind_and_text
         plain = t.plain
         base = highlight_one_line(plain)
-        apply_kind_bg(base, kind)
+        apply_bg(base, bg_for_kind(kind))
         if kind != "replace":
             return base
 
-        prefix_len = min(highlight_diff_prefix_len(plain), len(plain))
-        base_prefix = base[:prefix_len]
+        prefix_len = min(diff_prefix_len(plain), len(plain))
+        prefix = base[:prefix_len]
         inline_src = plain[prefix_len:]
-
         start = inline_src.find("~ ")
         if start < 0:
-            merged = base_prefix + highlight_one_line(inline_src)
-            apply_inline_replace_bg(merged, kind)
-            return merged
+            return prefix + highlight_one_line(inline_src)
 
-        inline_before = inline_src[: start + 2]
-        inline_body = inline_src[start + 2 :]
-
-        old_body, new_body = (inline_body.split(" => ", 1) + [""])[:2]
+        before = inline_src[: start + 2]
+        body = inline_src[start + 2 :]
+        old_body, new_body = (body.split(" => ", 1) + [""])[:2]
         if not new_body:
-            merged = base_prefix + highlight_one_line(inline_src)
-            apply_inline_replace_bg(merged, kind)
-            return merged
+            return prefix + highlight_one_line(inline_src)
 
-        before_text = highlight_one_line(inline_before)
-        diff_text = rich_inline_diff(old_body, new_body)
-        merged = base_prefix + before_text + diff_text
-        apply_inline_replace_bg(merged, kind)
-        return merged
+        return prefix + highlight_one_line(before) + rich_inline_diff(old_body, new_body)
 
-    rendered = list(map(render_line, padded))
-
-    for t in rendered:
+    for t in map(render, lines):
         console.print(t)
-
-def unified_diff_lines(
-    old_text: str,
-    new_text: str,
-    *,
-    context_lines: int = 3,
-) -> list[str]:
-    old_lines = old_text.splitlines(keepends=False)
-    new_lines = new_text.splitlines(keepends=False)
-    return list(
-        difflib.unified_diff(
-            old_lines,
-            new_lines,
-            lineterm="",
-            n=context_lines,
-        )
-    )
-
 
 def print_intraline_diff(
     old_text: str,
@@ -763,7 +600,6 @@ def print_intraline_diff(
     context_lines: int = 3,
     title: str | None = None,
 ):
-    """Backward-compatible wrapper: print the combined diff view."""
     print_numbered_combined_diff(
         old_text,
         new_text,
@@ -785,7 +621,7 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
         from_start=old_start,
         to_start=new_start,
         context_lines=2,
-        title=f"{filename}",
+        title=filename,
     )
 
 
@@ -847,13 +683,11 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         if updated is None:
             print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
             # Still show what it *wanted* to do, for debugging.
-            print_numbered_unified_diff(
+            print_intraline_diff(
                 old_string,
                 new_string,
-                from_start=1,
-                to_start=1,
                 context_lines=2,
-                title="Replacement text (numbered unified diff)",
+                title="Replacement text (preview)",
             )
             continue
 
@@ -866,7 +700,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
         target_path.write_text(updated, encoding="utf-8")
         changed.append(target_path)
-        print(f"[green]Applied replacement to {filename}[/green]")
 
     return changed
 
