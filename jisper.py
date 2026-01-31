@@ -462,21 +462,25 @@ def print_numbered_combined_diff(
         console.print("[yellow](no diff; contents are identical)[/yellow]")
         return
 
-    def syntax_for_unstyled_text(s: str) -> Syntax:
-        return Syntax(s, "python", theme="ansi_dark", background_color="#2b2b2b", line_numbers=False)
+    from rich.table import Table
 
-    def style_diff_text(t: Text) -> Text:
-        t.stylize("on #2b2b2b")
-        return t
+    bg = "#2b2b2b"
 
-    def print_line(t: Text):
+    def render_cell(t: Text):
         if t.spans:
-            console.print(style_diff_text(t))
-            return
-        console.print(syntax_for_unstyled_text(t.plain))
+            out = t.copy()
+            out.stylize(f"on {bg}")
+            return out
+        return Syntax(t.plain, "python", theme="ansi_dark", background_color=bg, line_numbers=False)
+
+    table = Table.grid(padding=(0, 0))
+    table.expand = True
+    table.add_column(no_wrap=True)
 
     for t in lines:
-        print_line(t)
+        table.add_row(render_cell(t))
+
+    console.print(table)
 
 def unified_diff_lines(
     old_text: str,
