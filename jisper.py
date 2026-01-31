@@ -351,11 +351,11 @@ def format_numbered_combined_diff(
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, Text]]:
     """Return a single combined diff with line numbers.
 
     The first tuple element is a kind: context|delete|insert|replace|header.
-    The second element is a display line that includes the line-number column and prefix.
+    The second element is a Rich Text line that includes the line-number column and prefix.
     """
     diff_lines = unified_diff_lines(
         old_text,
@@ -363,34 +363,35 @@ def format_numbered_combined_diff(
         context_lines=context_lines,
     )
 
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, Text]] = []
     new_ln = to_start
 
     def fmt_ln(ln: int | None) -> str:
         return format_fixed_width_line_number(ln)
 
-    def push(kind: str, line: str):
+    def push(kind: str, line: Text):
         out.append((kind, line))
 
     def push_header(line: str):
-        push("header", line)
+        push("header", Text(line))
 
     def push_context(text: str):
         nonlocal new_ln
-        push("context", f"{fmt_ln(new_ln)}    {text}")
+        push("context", Text(f"{fmt_ln(new_ln)}    {text}"))
         new_ln += 1
 
     def push_delete(text: str):
-        push("delete", f"{fmt_ln(None)}  - {text}")
+        push("delete", Text(f"{fmt_ln(None)}  - {text}"))
 
     def push_insert(text: str):
         nonlocal new_ln
-        push("insert", f"{fmt_ln(new_ln)}  + {text}")
+        push("insert", Text(f"{fmt_ln(new_ln)}  + {text}"))
         new_ln += 1
 
     def push_replace(old_line: str, new_line: str):
         nonlocal new_ln
-        push("replace", f"{fmt_ln(new_ln)}  ~ {new_line}")
+        merged_prefix = Text(f"{fmt_ln(new_ln)}  ~ ", style="bold")
+        push("replace", merged_prefix + rich_inline_diff(old_line, new_line))
         new_ln += 1
 
     is_hunk_header = is_hunk_header_line
@@ -478,23 +479,22 @@ def print_numbered_combined_diff(
             return rep_bg
         return base_bg
 
-    def pad_to_console_width(s: str) -> str:
+    def pad_text_to_console_width(t: Text) -> Text:
         width = console.size.width
         if width <= 0:
-            return s
-        return s + " " * max(0, width - len(s))
+            return t
+        pad = max(0, width - len(t.plain))
+        if pad <= 0:
+            return t
+        out = t.copy()
+        out.append(" " * pad)
+        return out
 
-    def render_line(kind: str, line: str):
+    def render_line(kind: str, line: Text):
         bg = bg_for_kind(kind)
-        lexer = "diff" if kind == "header" else "python"
-        return Syntax(
-            pad_to_console_width(line),
-            lexer,
-            theme="ansi_dark",
-            background_color=bg,
-            line_numbers=False,
-            word_wrap=False,
-        )
+        t = pad_text_to_console_width(line)
+        t.stylize(f"on {bg}")
+        return t
 
     for kind, line in lines:
         console.print(render_line(kind, line))
