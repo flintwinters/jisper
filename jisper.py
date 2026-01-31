@@ -585,8 +585,8 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
         return None
 
     repo.index.add(relpaths)
-    commit = repo.index.commit(message)
-    return commit.hexsha
+    repo.index.commit(message)
+    return message
 
 
 if __name__ == "__main__":
@@ -606,8 +606,8 @@ if __name__ == "__main__":
         print("[yellow]Not a git repository; skipping commit[/yellow]")
 
     if repo is not None and changed_files:
-        sha = stage_and_commit(repo, changed_files, commit_message)
-        if sha:
-            print(f"[green]Committed changes:[/green] {sha}")
+        committed_message = stage_and_commit(repo, changed_files, commit_message)
+        if committed_message:
+            print(f"[green]Committed changes:[/green] {committed_message}")
     if repo is not None and not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
