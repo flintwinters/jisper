@@ -147,7 +147,11 @@ def get_nested_str(d: dict, path: list[str]) -> str | None:
 def load_prompt_file(path: Path) -> dict:
     """Load the prompt/config JSON5 file."""
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except:
+            print("[bold red]< json syntax error >[/bold red]")
+            exit(1)
 
 def read_file_text_or_none(path: Path) -> str | None:
     """Return a file's UTF-8 text content if it exists, otherwise None."""
@@ -329,11 +333,11 @@ def is_trivial_separator_token(tok: str) -> bool:
 
 
 def merge_change_opcodes(
-    """Merge nearby opcode spans to reduce fragmentation in intraline diffs."""
     opcodes: list[tuple[str, int, int, int, int]],
     a_tokens: list[str],
     b_tokens: list[str],
 ) -> list[tuple[str, int, int, int, int]]:
+    """Merge nearby opcode spans to reduce fragmentation in intraline diffs."""
     merged: list[tuple[str, int, int, int, int]] = []
 
     def can_bridge_equal(i1: int, i2: int, j1: int, j2: int) -> bool:
@@ -454,19 +458,18 @@ def print_no_diff_notice():
 
 
 def unified_diff_lines(
-    """Compute unified-diff lines between two strings with configurable context."""
     old_text: str,
     new_text: str,
     *,
     context_lines: int = 3,
 ) -> list[str]:
+    """Compute unified-diff lines between two strings with configurable context."""
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
 
 
 def format_combined_diff_lines(
-    """Render unified-diff output into typed Rich Text lines with line numbers."""
     old_text: str,
     new_text: str,
     *,
@@ -474,6 +477,7 @@ def format_combined_diff_lines(
     to_start: int = 1,
     context_lines: int = 3,
 ) -> list[tuple[str, Text]]:
+    """Render unified-diff output into typed Rich Text lines with line numbers."""
     diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
 
     out: list[tuple[str, Text]] = []
@@ -536,7 +540,6 @@ def format_combined_diff_lines(
 
 
 def print_numbered_combined_diff(
-    """Print a numbered, colorized combined diff between two text blocks."""
     old_text: str,
     new_text: str,
     *,
@@ -545,6 +548,7 @@ def print_numbered_combined_diff(
     context_lines: int = 3,
     title: str | None = None,
 ):
+    """Print a numbered, colorized combined diff between two text blocks."""
     if title:
         console.print(f"\n[bold]{title}[/bold]")
 
@@ -623,13 +627,13 @@ def print_numbered_combined_diff(
         console.print(t)
 
 def print_intraline_diff(
-    """Print a compact diff view for two standalone strings."""
     old_text: str,
     new_text: str,
     *,
     context_lines: int = 3,
     title: str | None = None,
 ):
+    """Print a compact diff view for two standalone strings."""
     print_numbered_combined_diff(
         old_text,
         new_text,
