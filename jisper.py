@@ -388,6 +388,7 @@ def guess_syntax_lexer_name(text: str) -> str:
 
 
 def syntax_text(body: str, *, lexer_name: str) -> Text:
+    body = body[:-1] if body.endswith("\n") else body
     s = Syntax(
         body,
         lexer_name,
