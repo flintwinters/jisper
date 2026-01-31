@@ -92,20 +92,108 @@ def run():
 
     return json.loads(response.json()['choices'][0]['message']['content'])
 
-def rich_inline_diff(old: str, new: str) -> Text:
-    """Rich Text with inline diff highlighting (red deletions, green inserts)."""
-    t = Text()
-    sm = difflib.SequenceMatcher(a=old, b=new)
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+def tokenize_for_intraline_diff(s: str) -> list[str]:
+    parts = re.findall(r"\s+|[A-Za-z0-9_]+|[^\w\s]", s, flags=re.UNICODE)
+    return parts
+
+
+def is_trivial_separator_token(tok: str) -> bool:
+    if not tok:
+        return True
+    if tok.isspace():
+        return True
+    return tok in {".", ",", ":", ";", "(", ")", "[", "]", "{", "}", "=", "->"}
+
+
+def merge_change_opcodes(
+    opcodes: list[tuple[str, int, int, int, int]],
+    a_tokens: list[str],
+    b_tokens: list[str],
+) -> list[tuple[str, int, int, int, int]]:
+    merged: list[tuple[str, int, int, int, int]] = []
+
+    def can_bridge_equal(i1: int, i2: int, j1: int, j2: int) -> bool:
+        if i2 - i1 != j2 - j1:
+            return False
+        eq_a = a_tokens[i1:i2]
+        eq_b = b_tokens[j1:j2]
+        if eq_a != eq_b:
+            return False
+        return all(map(is_trivial_separator_token, eq_a))
+
+    def push(tag: str, i1: int, i2: int, j1: int, j2: int):
+        if not merged:
+            merged.append((tag, i1, i2, j1, j2))
+            return
+        ptag, pi1, pi2, pj1, pj2 = merged[-1]
+        if ptag == tag:
+            merged[-1] = (ptag, pi1, i2, pj1, j2)
+            return
+        merged.append((tag, i1, i2, j1, j2))
+
+    i = 0
+    while i < len(opcodes):
+        tag, i1, i2, j1, j2 = opcodes[i]
+
         if tag == "equal":
-            t.append(old[i1:i2])
-        elif tag == "delete":
-            t.append(old[i1:i2], style="red")
-        elif tag == "insert":
-            t.append(new[j1:j2], style="green")
-        elif tag == "replace":
-            t.append(old[i1:i2], style="red")
-            t.append(new[j1:j2], style="green")
+            push(tag, i1, i2, j1, j2)
+            i += 1
+            continue
+
+        start_i1, start_j1 = i1, j1
+        end_i2, end_j2 = i2, j2
+        i += 1
+
+        while i < len(opcodes):
+            ntag, ni1, ni2, nj1, nj2 = opcodes[i]
+            if ntag in {"delete", "insert", "replace"}:
+                end_i2, end_j2 = ni2, nj2
+                i += 1
+                continue
+
+            if ntag == "equal" and can_bridge_equal(ni1, ni2, nj1, nj2):
+                end_i2, end_j2 = ni2, nj2
+                i += 1
+                continue
+
+            break
+
+        push("replace", start_i1, end_i2, start_j1, end_j2)
+
+    return merged
+
+
+def rich_inline_diff(old: str, new: str) -> Text:
+    """Rich Text with inline diff highlighting (red deletions, green inserts).
+
+    Uses a token-based matcher and merges nearby change hunks to avoid overly
+    fragmented red/green segments.
+    """
+    t = Text()
+    a_tokens = tokenize_for_intraline_diff(old)
+    b_tokens = tokenize_for_intraline_diff(new)
+
+    sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
+    opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
+
+    for tag, i1, i2, j1, j2 in opcodes:
+        if tag == "equal":
+            t.append("".join(a_tokens[i1:i2]))
+            continue
+
+        if tag == "delete":
+            t.append("".join(a_tokens[i1:i2]), style="red")
+            continue
+
+        if tag == "insert":
+            t.append("".join(b_tokens[j1:j2]), style="green")
+            continue
+
+        if tag == "replace":
+            t.append("".join(a_tokens[i1:i2]), style="red")
+            t.append("".join(b_tokens[j1:j2]), style="green")
+            continue
+
     return t
 
 
