@@ -351,11 +351,11 @@ def format_numbered_combined_diff(
     from_start: int = 1,
     to_start: int = 1,
     context_lines: int = 3,
-) -> list[Text]:
-    """Return a single combined diff with line numbers and intra-line highlights.
+) -> list[tuple[str, str]]:
+    """Return a single combined diff with line numbers.
 
-    Output is based on unified diff lines, but paired '-'/'+' lines are merged into
-    a single '~' line with rich inline highlighting.
+    The first tuple element is a kind: context|delete|insert|replace|header.
+    The second element is a display line that includes the line-number column and prefix.
     """
     diff_lines = unified_diff_lines(
         old_text,
@@ -363,32 +363,34 @@ def format_numbered_combined_diff(
         context_lines=context_lines,
     )
 
-    out: list[Text] = []
+    out: list[tuple[str, str]] = []
     new_ln = to_start
 
     def fmt_ln(ln: int | None) -> str:
         return format_fixed_width_line_number(ln)
 
+    def push(kind: str, line: str):
+        out.append((kind, line))
+
     def push_header(line: str):
-        out.append(Text(line))
+        push("header", line)
 
     def push_context(text: str):
         nonlocal new_ln
-        out.append(Text(f"{fmt_ln(new_ln)}    {text}"))
+        push("context", f"{fmt_ln(new_ln)}    {text}")
         new_ln += 1
 
     def push_delete(text: str):
-        out.append(Text(f"{fmt_ln(None)}  - ", style="bold red") + rich_inline_diff(text, ""))
+        push("delete", f"{fmt_ln(None)}  - {text}")
 
     def push_insert(text: str):
         nonlocal new_ln
-        out.append(Text(f"{fmt_ln(new_ln)}  + ", style="bold green") + rich_inline_diff("", text))
+        push("insert", f"{fmt_ln(new_ln)}  + {text}")
         new_ln += 1
 
     def push_replace(old_line: str, new_line: str):
         nonlocal new_ln
-        merged_prefix = Text(f"{fmt_ln(new_ln)}  ~ ", style="bold")
-        out.append(merged_prefix + rich_inline_diff(old_line, new_line))
+        push("replace", f"{fmt_ln(new_ln)}  ~ {new_line}")
         new_ln += 1
 
     is_hunk_header = is_hunk_header_line
@@ -464,21 +466,31 @@ def print_numbered_combined_diff(
 
     from rich.table import Table
 
-    bg = "#2b2b2b"
+    base_bg = "#2b2b2b"
+    add_bg = "#0f3d0f"
+    del_bg = "#4a1414"
+    rep_bg = "#3a2f0a"
 
-    def render_cell(t: Text):
-        if t.spans:
-            out = t.copy()
-            out.stylize(f"on {bg}")
-            return out
-        return Syntax(t.plain, "python", theme="ansi_dark", background_color=bg, line_numbers=False)
+    def bg_for_kind(kind: str) -> str:
+        if kind == "insert":
+            return add_bg
+        if kind == "delete":
+            return del_bg
+        if kind == "replace":
+            return rep_bg
+        return base_bg
+
+    def render_cell(kind: str, line: str):
+        bg = bg_for_kind(kind)
+        lexer = "diff" if kind == "header" else "python"
+        return Syntax(line, lexer, theme="ansi_dark", background_color=bg, line_numbers=False)
 
     table = Table.grid(padding=(0, 0))
     table.expand = True
     table.add_column(no_wrap=True)
 
-    for t in lines:
-        table.add_row(render_cell(t))
+    for kind, line in lines:
+        table.add_row(render_cell(kind, line))
 
     console.print(table)
 
