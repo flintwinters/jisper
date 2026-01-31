@@ -434,11 +434,10 @@ def format_combined_diff_lines(
 
         prefix = line[:1]
         body = line[1:]
-        body = body[:-1] if body.endswith("\n") else body
 
         if prefix == " ":
             if pending_minus is not None:
-                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                pm_body = pending_minus[1:]
                 push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
                 pending_minus = None
@@ -449,7 +448,7 @@ def format_combined_diff_lines(
 
         if prefix == "-":
             if pending_minus is not None:
-                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                pm_body = pending_minus[1:]
                 push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 old_ln += 1
             pending_minus = line
@@ -457,7 +456,7 @@ def format_combined_diff_lines(
 
         if prefix == "+":
             if pending_minus is not None:
-                pm_body = pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]
+                pm_body = pending_minus[1:]
                 push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
                 pending_minus = None
                 old_ln += 1
@@ -469,10 +468,10 @@ def format_combined_diff_lines(
             push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
             old_ln += 1
             pending_minus = None
-        push("header", Text(line[:-1] if line.endswith("\n") else line))
+        push("header", Text(line))
 
     if pending_minus is not None:
-        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:-1] if pending_minus.endswith("\n") else pending_minus[1:]))
+        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
 
     return out
 
