@@ -394,10 +394,10 @@ def merge_change_opcodes(
 def rich_inline_diff(old: str, new: str) -> Text:
     """Rich Text with inline diff highlighting using background colors.
 
-    Uses a token-based matcher and merges nearby change hunks to avoid overly
-    fragmented segments.
+    Produces a single line where unchanged spans render normally, deleted spans
+    render with a delete background, and inserted spans render with an add
+    background.
     """
-    t = Text()
     a_tokens = tokenize_for_intraline_diff(old)
     b_tokens = tokenize_for_intraline_diff(new)
 
@@ -407,29 +407,33 @@ def rich_inline_diff(old: str, new: str) -> Text:
     del_style = Style(bgcolor="#4a1414")
     add_style = Style(bgcolor="#0f3d0f")
 
-    def append_bg(s: str, style: Style):
-        if s:
-            t.append(s, style=style)
+    def join_tokens(tokens: list[str], a: int, b: int) -> str:
+        return "".join(tokens[a:b])
+
+    def append_if(out: Text, s: str, style: Style | None = None) -> Text:
+        if not s:
+            return out
+        out.append(s, style=style)
+        return out
+
+    out = Text()
 
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
-            t.append("".join(a_tokens[i1:i2]))
+            out = append_if(out, join_tokens(a_tokens, i1, i2), None)
             continue
-
         if tag == "delete":
-            append_bg("".join(a_tokens[i1:i2]), del_style)
+            out = append_if(out, join_tokens(a_tokens, i1, i2), del_style)
             continue
-
         if tag == "insert":
-            append_bg("".join(b_tokens[j1:j2]), add_style)
+            out = append_if(out, join_tokens(b_tokens, j1, j2), add_style)
             continue
-
         if tag == "replace":
-            append_bg("".join(a_tokens[i1:i2]), del_style)
-            append_bg("".join(b_tokens[j1:j2]), add_style)
+            out = append_if(out, join_tokens(a_tokens, i1, i2), del_style)
+            out = append_if(out, join_tokens(b_tokens, j1, j2), add_style)
             continue
 
-    return t
+    return out
 
 
 def find_substring_start_line(haystack: str, needle: str) -> int | None:
@@ -489,6 +493,10 @@ def format_combined_diff_lines(
     def push(kind: str, line: Text):
         out.append((kind, line))
 
+    def replace_line(new_ln_v: int, old_body: str, new_body: str) -> Text:
+        prefix = Text(f"{fmt_ln(new_ln_v)} ~ ", style="bold")
+        return prefix + rich_inline_diff(old_body, new_body)
+
     pending_minus: str | None = None
 
     for line in diff_lines:
@@ -517,7 +525,7 @@ def format_combined_diff_lines(
 
         if prefix == "+":
             if pending_minus is not None:
-                push("replace", Text(f"{fmt_ln(new_ln)} ~ ", style="bold") + rich_inline_diff(pending_minus[1:], body))
+                push("replace", replace_line(new_ln, pending_minus[1:], body))
                 pending_minus = None
                 old_ln += 1
                 new_ln += 1
@@ -601,26 +609,17 @@ def print_numbered_combined_diff(
 
     def render(kind_and_text: tuple[str, Text]) -> Text:
         kind, t = kind_and_text
+        if kind == "replace":
+            prefix_txt = t[: min(11, len(t.plain))]
+            rest_txt = t[len(prefix_txt.plain) :]
+            base_prefix = highlight_one_line(prefix_txt.plain)
+            apply_bg(base_prefix, bg_for_kind(kind))
+            return base_prefix + rest_txt
+
         plain = t.plain
         base = highlight_one_line(plain)
         apply_bg(base, bg_for_kind(kind))
-        if kind != "replace":
-            return base
-
-        prefix_len = min(diff_prefix_len(plain), len(plain))
-        prefix = base[:prefix_len]
-        inline_src = plain[prefix_len:]
-        start = inline_src.find("~ ")
-        if start < 0:
-            return prefix + Text(inline_src)
-
-        before = inline_src[: start + 2]
-        body = inline_src[start + 2 :]
-        old_body, new_body = (body.split(" => ", 1) + [""])[:2]
-        if not new_body:
-            return prefix + Text(inline_src)
-
-        return prefix + Text(before) + rich_inline_diff(old_body, new_body)
+        return base
 
     for t in map(render, lines):
         console.print(t)
