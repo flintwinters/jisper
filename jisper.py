@@ -408,6 +408,7 @@ def format_numbered_unified_diff(
         if is_file_header_line(line) or is_hunk_header_line(line):
             continue
         if not line:
+            out_lines.append(line)
             continue
 
         prefix = line[:1]
@@ -608,9 +609,13 @@ def print_numbered_combined_diff(
         return line_kind_prefix_len("context")
 
     def highlight_one_line(line: str) -> Text:
-        s = Syntax(line, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
-        segs = list(s.highlight(line))
-        return Text.assemble(*segs)
+        src = line[:-1] if line.endswith("\n") else line
+        s = Syntax(src, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
+        segs = list(s.highlight(src))
+        out = Text.assemble(*segs)
+        if out.plain.endswith("\n"):
+            out = out[:-1]
+        return out
 
     def apply_bg_to_range(t: Text, bg: str, start: int, end: int):
         if start >= end:
