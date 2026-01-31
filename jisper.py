@@ -15,7 +15,7 @@ def make_console() -> Console:
 console = make_console()
 app = typer.Typer(add_completion=False)
 
-DEFAULT_PROMPT_FILE = "prompt.json"
+DEFAULT_PROMPT_FILE = 'prompt.json'
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
