@@ -309,7 +309,7 @@ def run(config_path: Path) -> tuple[dict, dict, str]:
 
     payload = build_payload(config, concatenated_text)
 
-    with console.status("[bright_black]Waiting for model...[/bright_black]", spinner="dots"):
+    with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
 
     api_json = response.json()
@@ -406,7 +406,7 @@ def rich_inline_diff(old: str, new: str) -> Text:
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
     def bg_style(bg: str) -> Style:
-        return Style.parse(f"on {bg}") + Style(color="#ffffff")
+        return Style.parse(f"on {bg}")
 
     del_style = bg_style("#4a1414")
     add_style = bg_style("#0f3d0f")
