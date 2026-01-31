@@ -353,7 +353,7 @@ def compute_replacement_line_numbers(original: str, matched_old: str, new_string
 
 def print_no_diff_notice():
     """Print a standardized message indicating there is no diff to display."""
-    console.print("[yellow](no diff; contents are identical)[/yellow]")
+    console.print("[yellow](no diff; content is identical)[/yellow]")
 
 
 def unified_diff_lines(
