@@ -16,9 +16,32 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console()
 
 DEFAULT_PROMPT_FILE = "prompt.json"
-MODEL = "gpt-5.2"
-API_KEY = os.getenv("OPENAI_API_KEY")
-URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_MODEL = "gpt-5.2"
+DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
+DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
+
+def get_base_config_value(config: dict, key: str, default: str) -> str:
+    v = config.get(key)
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return default
+
+def get_model_code(config: dict) -> str:
+    return get_base_config_value(config, "model", DEFAULT_MODEL)
+
+def get_api_key_env_var_name(config: dict) -> str:
+    return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
+
+def get_endpoint_url(config: dict) -> str:
+    return get_base_config_value(config, "endpoint", DEFAULT_URL)
+
+def get_api_key_from_env(env_var_name: str) -> str | None:
+    if not env_var_name:
+        return None
+    v = os.getenv(env_var_name)
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
 
 def load_prompt_file(path: Path) -> dict:
     """Load the prompt/config JSON5 file."""
@@ -40,15 +63,16 @@ def build_payload(prompt_config: dict, source_text: str):
     system_prompt = prompt_config["system_prompt"]
     user_task = prompt_config["task"]
     schema = prompt_config["output_schema"]
+    model_code = get_model_code(prompt_config)
 
     prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
-        "model": MODEL,
+        "model": model_code,
         "messages": [
             {"role": "system", "content": system_instruction},
-            {"role": "user", "content": prompt_content}
-        ]
+            {"role": "user", "content": prompt_content},
+        ],
     }
 
     if schema:
@@ -57,10 +81,10 @@ def build_payload(prompt_config: dict, source_text: str):
             "json_schema": {
                 "name": "structured_response",
                 "strict": True,
-                "schema": schema
-            }
+                "schema": schema,
+            },
         }
-    
+
     return payload
 
 def run():
@@ -70,14 +94,19 @@ def run():
 
     config_path = Path(args.config)
     config = load_prompt_file(config_path)
-    
+
+    # Base-level config fields
+    endpoint_url = get_endpoint_url(config)
+    api_key_env_var = get_api_key_env_var_name(config)
+    api_key = get_api_key_from_env(api_key_env_var)
+
     # Extract file list from prompt.json
-    files_to_read = config['input_files']
+    files_to_read = config["input_files"]
     concatenated_text = read_and_concatenate_files(files_to_read)
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {api_key or ''}",
+        "Content-Type": "application/json",
     }
 
     payload = build_payload(config, concatenated_text)
@@ -89,9 +118,9 @@ def run():
         transient=True,
     ) as progress:
         progress.add_task(description="Waiting for model...", total=None)
-        response = requests.post(URL, headers=headers, json=payload)
+        response = requests.post(endpoint_url, headers=headers, json=payload)
 
-    return json.loads(response.json()['choices'][0]['message']['content'])
+    return json.loads(response.json()["choices"][0]["message"]["content"])
 
 def tokenize_for_intraline_diff(s: str) -> list[str]:
     parts = re.findall(r"\s+|[A-Za-z0-9_]+|[^\w\s]", s, flags=re.UNICODE)
