@@ -651,22 +651,29 @@ def print_numbered_combined_diff(
             return base
 
         prefix_len = min(highlight_diff_prefix_len(plain), len(plain))
-        inline = Text.assemble(*Syntax(plain[prefix_len:], "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False).highlight(plain[prefix_len:]))
-        merged = Text.assemble(base.plain[:prefix_len], inline)
-        apply_inline_replace_bg(merged, kind)
-
+        base_prefix = base[:prefix_len]
         inline_src = plain[prefix_len:]
+
         start = inline_src.find("~ ")
         if start < 0:
+            merged = base_prefix + highlight_one_line(inline_src)
+            apply_inline_replace_bg(merged, kind)
             return merged
-        start += 2
-        inline_old = inline_src[start:]
-        repl_text = rich_inline_diff(inline_old, inline_old)
-        if repl_text.plain == inline_old:
+
+        inline_before = inline_src[: start + 2]
+        inline_body = inline_src[start + 2 :]
+
+        old_body, new_body = (inline_body.split(" => ", 1) + [""])[:2]
+        if not new_body:
+            merged = base_prefix + highlight_one_line(inline_src)
+            apply_inline_replace_bg(merged, kind)
             return merged
-        replaced = Text.assemble(merged.plain[:prefix_len + start], repl_text)
-        apply_inline_replace_bg(replaced, kind)
-        return replaced
+
+        before_text = highlight_one_line(inline_before)
+        diff_text = rich_inline_diff(old_body, new_body)
+        merged = base_prefix + before_text + diff_text
+        apply_inline_replace_bg(merged, kind)
+        return merged
 
     rendered = list(map(render_line, padded))
 
