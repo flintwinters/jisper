@@ -25,6 +25,7 @@ DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
 
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
+    "gpt-5-mini": (1.0, 3.0),
 }
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
