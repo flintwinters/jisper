@@ -579,6 +579,9 @@ def print_numbered_combined_diff(
             return rep_bg
         return base_bg
 
+    def to_markup_line(t: Text) -> str:
+        return t.markup
+
     def pad_text_to_console_width(t: Text) -> Text:
         width = console.size.width
         if width <= 0:
@@ -590,14 +593,19 @@ def print_numbered_combined_diff(
         out.append(" " * pad)
         return out
 
-    def render_line(kind: str, line: Text):
-        bg = bg_for_kind(kind)
-        t = pad_text_to_console_width(line)
-        t.stylize(f"on {bg}")
-        return t
+    padded = list(map(lambda kl: (kl[0], pad_text_to_console_width(kl[1])), lines))
+    joined = "\n".join(map(lambda kl: to_markup_line(kl[1]), padded))
 
-    for kind, line in lines:
-        console.print(render_line(kind, line))
+    syntax = Syntax(joined, "diff", theme="ansi_dark", background_color=base_bg, line_numbers=False, word_wrap=False)
+
+    def apply_kind_bg(i: int, kind: str):
+        bg = bg_for_kind(kind)
+        syntax.stylize_range(f"on {bg}", (i, 0), (i, len(syntax.code.splitlines()[i]) if syntax.code else 0))
+
+    for i, (kind, _) in enumerate(padded):
+        apply_kind_bg(i, kind)
+
+    console.print(syntax)
 
 def unified_diff_lines(
     old_text: str,
