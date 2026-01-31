@@ -16,11 +16,24 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
 
+DEFAULT_PROMPT_FILE = "prompt.json"
+DEFAULT_MODEL = "gpt-5.2"
+DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
+DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
+DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
+
+MODEL_PRICES_USD_PER_1M = {
+    "gpt-5.2": (5.0, 15.0),
+    "gpt-5-mini": (1.0, 3.0),
+}
+
 @app.callback(invoke_without_command=True)
 def main(
     config: Path = typer.Option(
         DEFAULT_PROMPT_FILE,
-        "--config",
+        "-p",
+        "--prompt",
         help="Path to prompt/config JSON5 file (default: prompt.json).",
         show_default=True,
     ),
@@ -34,7 +47,7 @@ def main(
     redo: bool = typer.Option(
         False,
         "--redo",
-        help="Redo/undo the last commit (alias of --undo).",
+        help="Redo the last undo by moving HEAD to a more recent commit (fast-forward to ORIG_HEAD when available).",
         show_default=False,
     ),
 ) -> None:
@@ -69,18 +82,6 @@ def main(
     config_obj = load_prompt_file(config)
     in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
     print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
-
-DEFAULT_PROMPT_FILE = "prompt.json"
-DEFAULT_MODEL = "gpt-5.2"
-DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
-DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
-DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
-DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
-
-MODEL_PRICES_USD_PER_1M = {
-    "gpt-5.2": (5.0, 15.0),
-    "gpt-5-mini": (1.0, 3.0),
-}
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
     v = config.get(key)
@@ -909,14 +910,14 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
     return message
 
 
-def redo_last_commit(base_dir: Path) -> int:
+def undo_last_commit(base_dir: Path) -> int:
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
         return 1
 
     if not repo.head.is_valid():
-        print("No commits to redo")
+        print("No commits to undo")
         return 1
 
     if not repo.head.commit.parents:
@@ -927,8 +928,32 @@ def redo_last_commit(base_dir: Path) -> int:
     return 0
 
 
-def undo_last_commit(base_dir: Path) -> int:
-    return redo_last_commit(base_dir)
+def redo_last_commit(base_dir: Path) -> int:
+    repo = repo_from_dir(base_dir)
+    if repo is None:
+        print("Not a git repository")
+        return 1
+
+    if not repo.head.is_valid():
+        print("No commits to redo")
+        return 1
+
+    orig_head = None
+    try:
+        orig_head = repo.commit("ORIG_HEAD")
+    except Exception:
+        orig_head = None
+
+    if orig_head is None:
+        print("No ORIG_HEAD found to redo to")
+        return 1
+
+    if orig_head.hexsha == repo.head.commit.hexsha:
+        print("Already at the most recent commit")
+        return 0
+
+    repo.git.merge("--ff-only", orig_head.hexsha)
+    return 0
 
 
 if __name__ == "__main__":
