@@ -16,6 +16,60 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console(soft_wrap=False)
 app = typer.Typer(add_completion=False)
 
+@app.callback(invoke_without_command=True)
+def main(
+    config: Path = typer.Option(
+        DEFAULT_PROMPT_FILE,
+        "--config",
+        help="Path to prompt/config JSON5 file (default: prompt.json).",
+        show_default=True,
+    ),
+    undo: bool = typer.Option(
+        False,
+        "-u",
+        "--undo",
+        help="Undo the last git commit (mixed reset to HEAD~1).",
+        show_default=False,
+    ),
+    redo: bool = typer.Option(
+        False,
+        "--redo",
+        help="Redo/undo the last commit (alias of --undo).",
+        show_default=False,
+    ),
+) -> None:
+    if redo:
+        raise typer.Exit(code=redo_last_commit(Path.cwd()))
+
+    if undo:
+        raise typer.Exit(code=undo_last_commit(Path.cwd()))
+
+    response, usage, model_code = run(config)
+    print_model_change_notes(response or {})
+
+    edits = (response or {}).get("edit", {})
+    replacements = edits.get("replacements", [])
+    changed_files = apply_replacements(replacements)
+
+    commit_message = extract_commit_message(response or {})
+    if not commit_message:
+        commit_message = "Apply model edits"
+
+    repo = repo_from_dir(Path.cwd())
+    if repo is None:
+        print("[yellow]Not a git repository; skipping commit[/yellow]")
+
+    if repo is not None and changed_files:
+        committed_message = stage_and_commit(repo, changed_files, commit_message)
+        if committed_message:
+            print(f"[green]Committed changes:[/green] {committed_message}")
+    if repo is not None and not changed_files:
+        print("[yellow]No files changed; skipping commit[/yellow]")
+
+    config_obj = load_prompt_file(config)
+    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
+    print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
+
 DEFAULT_PROMPT_FILE = "prompt.json"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
@@ -479,23 +533,23 @@ def format_numbered_combined_diff(
 
     def push_context(text: str):
         nonlocal old_ln, new_ln
-        push("context", Text(f"{fmt_ln(new_ln)}  {text}"))
+        push("context", Text(f"{fmt_ln(new_ln)}   {text}"))
         old_ln += 1
         new_ln += 1
 
     def push_delete(text: str):
         nonlocal old_ln
-        push("delete", Text(f"{fmt_ln(old_ln)}- {text}"))
+        push("delete", Text(f"{fmt_ln(old_ln)} - {text}"))
         old_ln += 1
 
     def push_insert(text: str):
         nonlocal new_ln
-        push("insert", Text(f"{fmt_ln(new_ln)}+ {text}"))
+        push("insert", Text(f"{fmt_ln(new_ln)} + {text}"))
         new_ln += 1
 
     def push_replace(old_line: str, new_line: str):
         nonlocal old_ln, new_ln
-        merged_prefix = Text(f"{fmt_ln(new_ln)}  ~ ", style="bold")
+        merged_prefix = Text(f"{fmt_ln(new_ln)} ~ ", style="bold")
         push("replace", merged_prefix + rich_inline_diff(old_line, new_line))
         old_ln += 1
         new_ln += 1
@@ -875,61 +929,6 @@ def redo_last_commit(base_dir: Path) -> int:
 
 def undo_last_commit(base_dir: Path) -> int:
     return redo_last_commit(base_dir)
-
-
-@app.command(add_help_option=False)
-def main(
-    config: Path = typer.Option(
-        DEFAULT_PROMPT_FILE,
-        "--config",
-        help="Path to prompt/config JSON5 file (default: prompt.json).",
-        show_default=True,
-    ),
-    undo: bool = typer.Option(
-        False,
-        "-u",
-        "--undo",
-        help="Undo the last git commit (mixed reset to HEAD~1).",
-        show_default=False,
-    ),
-    redo: bool = typer.Option(
-        False,
-        "--redo",
-        help="Redo/undo the last commit (alias of --undo).",
-        show_default=False,
-    ),
-) -> None:
-    if redo:
-        raise typer.Exit(code=redo_last_commit(Path.cwd()))
-
-    if undo:
-        raise typer.Exit(code=undo_last_commit(Path.cwd()))
-
-    response, usage, model_code = run(config)
-    print_model_change_notes(response or {})
-
-    edits = (response or {}).get("edit", {})
-    replacements = edits.get("replacements", [])
-    changed_files = apply_replacements(replacements)
-
-    commit_message = extract_commit_message(response or {})
-    if not commit_message:
-        commit_message = "Apply model edits"
-
-    repo = repo_from_dir(Path.cwd())
-    if repo is None:
-        print("[yellow]Not a git repository; skipping commit[/yellow]")
-
-    if repo is not None and changed_files:
-        committed_message = stage_and_commit(repo, changed_files, commit_message)
-        if committed_message:
-            print(f"[green]Committed changes:[/green] {committed_message}")
-    if repo is not None and not changed_files:
-        print("[yellow]No files changed; skipping commit[/yellow]")
-
-    config_obj = load_prompt_file(config)
-    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
-    print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
 
 
 if __name__ == "__main__":
