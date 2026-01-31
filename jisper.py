@@ -13,7 +13,9 @@ from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
-console = Console()
+# Avoid Rich inserting soft-wrap newlines into output; let the terminal handle wrapping.
+# soft_wrap=False keeps long lines as a single logical line.
+console = Console(soft_wrap=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
 DEFAULT_MODEL = "gpt-5.2"
