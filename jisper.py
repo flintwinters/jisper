@@ -280,7 +280,7 @@ def format_numbered_unified_diff(
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
 
-    header = list(
+    diff_lines = list(
         difflib.unified_diff(
             old_lines,
             new_lines,
@@ -311,9 +311,8 @@ def format_numbered_unified_diff(
         return f"{fmt(None)}  {prefix}{text}"
 
     out_lines: list[str] = []
-    for line in header:
+    for line in diff_lines:
         if is_file_header_line(line) or is_hunk_header_line(line):
-            out_lines.append(line)
             continue
         if not line:
             out_lines.append(line)
@@ -407,10 +406,6 @@ def format_numbered_combined_diff(
 
     for line in diff_lines:
         if is_file_header(line) or is_hunk_header(line):
-            if pending_minus is not None:
-                push_delete(pending_minus[1:])
-                pending_minus = None
-            push_header(line)
             continue
 
         if not line:
@@ -515,8 +510,6 @@ def print_intraline_diff(
 
 
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
-    console.print(f"\n[bold]Preview for[/bold] [white]{filename}[/white]")
-
     line_info = compute_replacement_line_numbers(original, old_string, new_string)
     old_start = line_info[0] if line_info else 1
     new_start = line_info[1] if line_info else 1
