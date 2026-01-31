@@ -396,8 +396,9 @@ def syntax_text(body: str, *, lexer_name: str) -> Text:
         word_wrap=False,
         code_width=0,
         indent_guides=False,
+        newline="",
     )
-    return s.highlight(body)
+    return s
 
 
 def format_combined_diff_lines(
