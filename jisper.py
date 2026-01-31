@@ -404,13 +404,10 @@ def rich_inline_diff(old: str, new: str) -> Text:
     sm = difflib.SequenceMatcher(a=a_tokens, b=b_tokens, autojunk=False)
     opcodes = merge_change_opcodes(sm.get_opcodes(), a_tokens, b_tokens)
 
-    def on_bg(bg: str) -> str:
-        return f"on {bg}" if bg else ""
+    del_style = Style(bgcolor="#4a1414")
+    add_style = Style(bgcolor="#0f3d0f")
 
-    del_style = on_bg("#4a1414")
-    add_style = on_bg("#0f3d0f")
-
-    def append_bg(s: str, style: str):
+    def append_bg(s: str, style: Style):
         if s:
             t.append(s, style=style)
 
