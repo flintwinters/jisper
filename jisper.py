@@ -1,11 +1,11 @@
 import requests
 import os
 import json5 as json
-import argparse
 import difflib
 from pathlib import Path
 import re
 import git
+import typer
 from rich import print
 from rich.console import Console
 from rich.text import Text
@@ -13,9 +13,8 @@ from rich.syntax import Syntax
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 
-# Avoid Rich inserting soft-wrap newlines into output; let the terminal handle wrapping.
-# soft_wrap=False keeps long lines as a single logical line.
 console = Console(soft_wrap=False)
+app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
 DEFAULT_MODEL = "gpt-5.2"
@@ -110,20 +109,13 @@ def build_payload(prompt_config: dict, source_text: str):
 
     return payload
 
-def run():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default=DEFAULT_PROMPT_FILE)
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
+def run(config_path: Path) -> dict:
     config = load_prompt_file(config_path)
 
-    # Base-level config fields
     endpoint_url = get_endpoint_url(config)
     api_key_env_var = get_api_key_env_var_name(config)
     api_key = get_api_key_from_env(api_key_env_var)
 
-    # Extract file list from prompt.json
     files_to_read = config["input_files"]
     concatenated_text = read_and_concatenate_files(files_to_read)
 
@@ -661,8 +653,33 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
     return message
 
 
-if __name__ == "__main__":
-    response = run()
+def undo_last_commit(base_dir: Path) -> int:
+    repo = repo_from_dir(base_dir)
+    if repo is None:
+        print("Not a git repository")
+        return 1
+
+    if not repo.head.is_valid():
+        print("No commits to undo")
+        return 1
+
+    if not repo.head.commit.parents:
+        print("No parent commit to reset to")
+        return 1
+
+    repo.git.reset("--mixed", "HEAD~1")
+    return 0
+
+
+@app.command(add_help_option=False)
+def main(
+    config: Path = typer.Option(DEFAULT_PROMPT_FILE, "--config"),
+    undo: bool = typer.Option(False, "-u", "--undo"),
+) -> None:
+    if undo:
+        raise typer.Exit(code=undo_last_commit(Path.cwd()))
+
+    response = run(config)
     print_model_change_notes(response or {})
 
     edits = (response or {}).get("edit", {})
@@ -683,3 +700,7 @@ if __name__ == "__main__":
             print(f"[green]Committed changes:[/green] {committed_message}")
     if repo is not None and not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
+
+
+if __name__ == "__main__":
+    app()
