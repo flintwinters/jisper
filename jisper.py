@@ -64,6 +64,7 @@
 import requests
 import os
 import json5 as json
+import yaml
 import difflib
 from pathlib import Path
 import git
@@ -79,6 +80,7 @@ console = Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
+DEFAULT_PROMPT_YAML_FILE = "prompt.yaml"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
@@ -183,7 +185,7 @@ def main(
         DEFAULT_PROMPT_FILE,
         "-p",
         "--prompt",
-        help="Path to prompt/config JSON5 file (default: prompt.json).",
+        help="Path to prompt/config file (.json/.json5 or .yaml/.yml) (default: prompt.json).",
         show_default=True,
     ),
     undo: bool = typer.Option(
@@ -288,6 +290,11 @@ def get_nested_str(d: dict, path: list[str]) -> str | None:
     return as_non_empty_str(cur)
 
 def load_prompt_file(path: Path) -> dict:
+    suffix = (path.suffix or "").lower()
+    if suffix in (".yaml", ".yml"):
+        with path.open("r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        return loaded if isinstance(loaded, dict) else {}
     return read_json5(path)
 
 def read_file_text_or_none(path: Path) -> str | None:
