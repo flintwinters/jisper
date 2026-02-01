@@ -1,66 +1,3 @@
-# === AI-FILE-SUMMARY ===
-# File: jisper.py
-# Purpose: CLI tool that sends configured source files to a chat-completions API, applies structured in-file string replacements, previews diffs, and optionally commits via git.
-# Domain: developer tooling
-# Responsibilities:
-#   - Load JSON5 prompt/config and concatenate input files
-#   - Build and send chat-completions requests with optional JSON schema response_format
-#   - Parse model output, print explanation, and apply file replacements with diff previews
-#   - Stage and commit changed files or undo/redo last commit
-#   - Estimate and print token usage cost using model pricing
-# Public API:
-#   - main(config: Path=..., undo: bool=..., redo: bool=...) - Typer callback/CLI entry handling run/apply/commit/undo/redo.
-#   - run(config_path: Path) -> tuple[dict, dict, str] - Execute API call and return (model_output, usage, model_code).
-#   - apply_replacements(replacements, base_dir: Path | None=None) -> list[Path] - Apply replacement edits to files on disk.
-#   - stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None - Stage paths and create a git commit.
-#   - undo_last_commit(base_dir: Path) -> int - Hard-reset repo to HEAD~1.
-#   - redo_last_commit(base_dir: Path) -> int - Hard-reset repo to ORIG_HEAD.
-# Internal Functions:
-#   - as_non_empty_str - Normalize value to non-empty stripped string.
-#   - dict_get - Safe dict getter with default.
-#   - coerce_int - Coerce common numeric encodings to int.
-#   - lower_keys - Lowercase dict keys.
-#   - read_text_or_none - Read UTF-8 text if path exists.
-#   - read_json5 - Load JSON5 file into dict.
-#   - env_non_empty - Read non-empty environment variable.
-#   - get_base_config_value/get_model_code/get_api_key_env_var_name/get_endpoint_url - Resolve config defaults.
-#   - get_api_key_from_env - Read API key value.
-#   - is_file_header_line/is_hunk_header_line/is_diff_meta_line - Diff line classifiers.
-#   - format_fixed_width_line_number/styled_line_number - Diff line number formatting.
-#   - get_nested_str - Traverse nested dict path for string.
-#   - load_prompt_file/read_file_text_or_none/read_and_concatenate_files - Input loading.
-#   - build_payload - Construct API request payload.
-#   - extract_usage_from_api_response - Parse token usage from JSON/headers.
-#   - get_model_prices_usd_per_1m/estimate_cost_usd/format_token_cost_line - Pricing and cost formatting.
-#   - find_substring_start_line/compute_replacement_line_numbers - Locate replacement start line.
-#   - print_no_diff_notice/unified_diff_lines/guess_syntax_lexer_name/syntax_text - Diff rendering helpers.
-#   - format_combined_diff_lines/print_numbered_combined_diff/print_change_preview - Diff preview output.
-#   - apply_one_replacement - Perform tolerant replacement matching.
-#   - print_model_change_notes/extract_commit_message - Display/extract model metadata.
-#   - repo_from_dir - Locate enclosing git repo.
-# Data Structures:
-#   - DEFAULT_OUTPUT_SCHEMA - JSON schema for structured model edits.
-#   - MODEL_PRICES_USD_PER_1M - Map of model code to (input, output) USD per 1M tokens.
-# Side Effects:
-#   - fs | net | io
-# Dependencies:
-#   - requests
-#   - os
-#   - json5
-#   - difflib
-#   - pathlib
-#   - git
-#   - typer
-#   - rich
-# Entry Points:
-#   - main
-# Invariants:
-#   - Replacement edits only apply when old_string (or trimmed variants) matches content.
-#   - Diff preview uses Rich Console with soft_wrap=True.
-# AI Notes:
-#   - Output is intended to be copypasteable; avoid hard-wrapping or panel-based rendering.
-# === /AI-FILE-SUMMARY ===
-
 import requests
 import os
 import json5 as json
@@ -79,8 +16,7 @@ from rich.syntax import Syntax
 console = Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 app = typer.Typer(add_completion=False)
 
-DEFAULT_PROMPT_FILE = "prompt.json"
-DEFAULT_PROMPT_YAML_FILE = "prompt.yaml"
+DEFAULT_PROMPT_FILE = "prompt.yaml"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
@@ -138,6 +74,7 @@ DEFAULT_OUTPUT_SCHEMA = {
         "required": ["edit"]
     }
 
+
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
@@ -179,13 +116,32 @@ def read_json5(path: Path) -> dict:
 def env_non_empty(name: str) -> str | None:
     return as_non_empty_str(os.getenv(name or ""))
 
+def get_routines_map(config: dict) -> dict:
+    v = dict_get(config, "routines")
+    return v if isinstance(v, dict) else {}
+
+def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
+    name = as_non_empty_str(routine_name)
+    if not name:
+        return None
+
+    routines = get_routines_map(config)
+    task = routines.get(name)
+    task = as_non_empty_str(task)
+    return task
+
 @app.callback(invoke_without_command=True)
 def main(
+    routine: str | None = typer.Argument(
+        None,
+        help="Optional routine name to use from prompt config's `routines` mapping (overrides default task).",
+        show_default=False,
+    ),
     config: Path = typer.Option(
         DEFAULT_PROMPT_FILE,
         "-p",
         "--prompt",
-        help="Path to prompt/config file (.json/.json5 or .yaml/.yml) (default: prompt.json).",
+        help="Path to prompt/config file (.json/.json5 or .yaml/.yml) (default: prompt.yaml).",
         show_default=True,
     ),
     undo: bool = typer.Option(
@@ -208,7 +164,7 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response, usage, model_code = run(config)
+    response, usage, model_code = run(config, routine)
     print_model_change_notes(response or {})
 
     edits = (response or {}).get("edit", {})
@@ -313,11 +269,11 @@ def read_and_concatenate_files(file_list):
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
-def build_payload(prompt_config: dict, source_text: str):
+def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
     """Build the chat-completions request payload from config and concatenated source text."""
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
-    user_task = prompt_config["task"]
+    user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
@@ -399,22 +355,30 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
     return f"[bright_black]${cost:.4f}[/bright_black]"
 
 
-def run(config_path: Path) -> tuple[dict, dict, str]:
+def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
     """Call the model API using the config file and return parsed output, usage, and model code."""
     config = load_prompt_file(config_path)
+    routine_task = resolve_routine_task(config, routine_name)
+    if as_non_empty_str(routine_name) and not routine_task:
+        routines = get_routines_map(config)
+        available = ", ".join(sorted(map(str, routines.keys())))
+        print(f"[red]Routine not found:[/red] {routine_name}")
+        if available:
+            print(f"[yellow]Available routines:[/yellow] {available}")
+        raise typer.Exit(code=2)
 
     endpoint_url = get_endpoint_url(config)
     api_key_env_var = get_api_key_env_var_name(config)
     api_key = get_api_key_from_env(api_key_env_var)
 
-    concatenated_text = read_and_concatenate_files(config["input_files"])
+    concatenated_text = read_and_concatenate_files(config["foreground_files"])
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
 
-    payload = build_payload(config, concatenated_text)
+    payload = build_payload(config, concatenated_text, routine_name)
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
