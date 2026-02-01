@@ -11,7 +11,7 @@ from rich.text import Text
 from rich.syntax import Syntax
 
 def make_console() -> Console:
-    return Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
+    return Console(soft_wrap=False, markup=False, highlight=False, no_color=False)
 
 console = make_console()
 app = typer.Typer(add_completion=False)
@@ -157,12 +157,6 @@ def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
     if ln is None:
         return " " * width
     return f"{ln:>{width}}"
-
-def text_with_prefix(prefix: str, body: str) -> Text:
-    """Build a Text line from a prefix and body without using Rich markup."""
-    t = Text(prefix)
-    t.append(body)
-    return t
 
 def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
     """Create a fixed-width line-number Text with an optional style."""
@@ -401,9 +395,15 @@ def format_combined_diff_lines(
         out.append((kind, line[:-1]))
 
     def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str) -> Text:
-        ln_t = styled_line_number(ln, style=style)
-        body_t = syntax_text(body, lexer_name=guessed_lexer)
-        return ln_t + Text(mid) + body_t
+        return styled_line_number(ln, style=style) + Text(mid) + syntax_text(body, lexer_name=guessed_lexer)
+
+    def flush_pending_minus(pending: str | None) -> str | None:
+        nonlocal old_ln
+        if pending is None:
+            return None
+        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending[1:]))
+        old_ln += 1
+        return None
 
     pending_minus: str | None = None
 
@@ -415,42 +415,27 @@ def format_combined_diff_lines(
         body = line[1:]
 
         if prefix == " ":
-            if pending_minus is not None:
-                pm_body = pending_minus[1:]
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
-                old_ln += 1
-                pending_minus = None
+            pending_minus = flush_pending_minus(pending_minus)
             push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
             old_ln += 1
             new_ln += 1
             continue
 
         if prefix == "-":
-            if pending_minus is not None:
-                pm_body = pending_minus[1:]
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
-                old_ln += 1
+            pending_minus = flush_pending_minus(pending_minus)
             pending_minus = line
             continue
 
         if prefix == "+":
-            if pending_minus is not None:
-                pm_body = pending_minus[1:]
-                push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pm_body))
-                pending_minus = None
-                old_ln += 1
+            pending_minus = flush_pending_minus(pending_minus)
             push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body))
             new_ln += 1
             continue
 
-        if pending_minus is not None:
-            push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
-            old_ln += 1
-            pending_minus = None
+        pending_minus = flush_pending_minus(pending_minus)
         push("header", Text(line))
 
-    if pending_minus is not None:
-        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending_minus[1:]))
+    flush_pending_minus(pending_minus)
 
     return out
 
@@ -467,7 +452,7 @@ def print_numbered_combined_diff(
 ):
     """Print a numbered, colorized combined diff between two text blocks."""
     if title:
-        console.print(f"\n[bold]{title}[/bold]")
+        console.print(f"\n{title}")
 
     lines = format_combined_diff_lines(
         old_text,
@@ -485,7 +470,7 @@ def print_numbered_combined_diff(
     for _, t in lines:
         console.print(t)
 
-def print_change_preview(filename: str, old_string: str, new_string: str, original: str, updated: str):
+def print_change_preview(filename: str, old_string: str, new_string: str, original: str):
     """Print a focused diff preview of a pending replacement within a file."""
     line_info = compute_replacement_line_numbers(original, old_string, new_string)
     old_start = line_info[0] if line_info else 1
@@ -530,18 +515,28 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
     """Apply {filename, old_string, new_string} edits to files on disk."""
     base_dir = base_dir or Path.cwd()
 
-    def apply_one(i_r) -> Path | None:
-        i, r = i_r
+    def get_fields(i: int, r: dict) -> tuple[str | None, str | None, str | None] | None:
         filename = dict_get(r, "filename")
         old_string = dict_get(r, "old_string")
         new_string = dict_get(r, "new_string")
-
         if not filename:
             print(f"[red]Replacement #{i} missing filename; skipping[/red]")
             return None
         if old_string is None or new_string is None:
             print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
             return None
+        return (filename, old_string, new_string)
+
+    def preview_missing_old(filename: str, old_string: str, new_string: str):
+        print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
+        print_numbered_combined_diff(old_string, new_string, from_start=1, to_start=1, context_lines=2, title="Replacement text (preview)")
+
+    def apply_one(i_r) -> Path | None:
+        i, r = i_r
+        fields = get_fields(i, r or {})
+        if fields is None:
+            return None
+        filename, old_string, new_string = fields
 
         target_path = (base_dir / filename).resolve()
         original = read_text_or_none(target_path)
@@ -551,15 +546,14 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
         updated, matched_old = apply_one_replacement(original, old_string, new_string)
         if updated is None:
-            print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
-            print_numbered_combined_diff(old_string, new_string, from_start=1, to_start=1, context_lines=2, title="Replacement text (preview)")
+            preview_missing_old(filename, old_string, new_string)
             return None
 
         if updated == original:
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
 
-        print_change_preview(filename, matched_old, new_string, original, updated)
+        print_change_preview(filename, matched_old, new_string, original)
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
