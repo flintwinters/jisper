@@ -2,7 +2,7 @@
 
 Jisper is a small CLI for making LLM-driven code edits **repeatable and reviewable**.
 
-Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to audit, easy to misapply, and difficult to reproduce. Jisper turns that workflow into a simple pipeline: load a prompt config, send the relevant files, get back an explicit list of string replacements, preview a diff, apply locally, and (optionally) commit.
+Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to audit, easy to misapply, and difficult to reproduce. Jisper turns that workflow into a simple pipeline: load a prompt config, send the relevant files, get back an explicit list of string replacements, preview a diff, apply locally, and commit.
 
 ## What it does
 
@@ -11,45 +11,9 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
 - Optionally extracts compact context from `[FILE SUMMARY] ... [/FILE SUMMARY]` blocks.
 - Calls a Chat Completions endpoint.
 - Expects a **structured JSON** response that describes exact string replacements.
-- Shows a diff preview, applies the edits, and can create a git commit.
+- Shows a diff preview, applies the edits, and creates a git commit.
 
-The entire tool lives in a single script: `jisper.py`.
-
-## Requirements
-
-- Python 3.11+
-- An API key in an environment variable (default: `OPENAI_API_KEY`)
-- A prompt config file (default: `prompt.yaml`)
-
-## Quickstart
-
-Run with the default prompt file (`prompt.yaml`) and default task:
-
-```bash
-python jisper.py
-```
-
-Use a specific prompt/config file:
-
-```bash
-python jisper.py --prompt prompt.yaml
-python jisper.py -p prompt.json5
-```
-
-Run a named routine (a task override from `routines` in the config):
-
-```bash
-python jisper.py docs
-```
-
-Undo / redo the last commit created by Jisper:
-
-```bash
-python jisper.py --undo
-python jisper.py --redo
-```
-
-## How to think about it
+## Motivation
 
 Jisper is intentionally “dumb” about editing: the model does not return a patch, it returns a list of **(filename, old_string, new_string)** operations. That keeps the application step deterministic, makes failures obvious (can’t find `old_string`), and keeps the review loop tight (diff preview before write + git commit when available).
 

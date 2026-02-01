@@ -1,4 +1,4 @@
-"""--- [FILE SUMMARY] context:
+"""[FILE SUMMARY] context:
   INTENT:
     purpose: >
       Provide a CLI that loads a prompt configuration, sends source material plus optional file-summary context to a chat completions endpoint, applies returned string replacements to local files, and optionally commits the result to git.
@@ -73,7 +73,7 @@
           Reset repository to ORIG_HEAD when available.
     dependencies:
       - No internal project modules; this file is standalone and is invoked as the CLI script.
-[/FILE SUMMARY] ---
+[/FILE SUMMARY]
 """
 
 import requests
