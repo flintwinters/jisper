@@ -1,24 +1,27 @@
 # Jisper
 
-Jisper is a small CLI that:
+Jisper is a small CLI for making LLM-driven code edits **repeatable and reviewable**.
 
-- Loads a prompt configuration (YAML or JSON5).
-- Reads a set of project files as “source material”.
-- Optionally extracts lightweight YAML context from `[FILE SUMMARY] ... [/FILE SUMMARY]` blocks.
-- Sends the assembled prompt to a Chat Completions endpoint.
-- Expects a structured JSON response describing exact string replacements.
-- Applies those replacements locally with a diff preview.
-- Optionally stages and commits the changes to git.
+Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to audit, easy to misapply, and difficult to reproduce. Jisper turns that workflow into a simple pipeline: load a prompt config, send the relevant files, get back an explicit list of string replacements, preview a diff, apply locally, and (optionally) commit.
 
-This repository’s functionality is implemented in a single script: `jisper.py`.
+## What it does
+
+- Loads a prompt/config file (YAML or JSON5).
+- Reads a configured set of project files as source material.
+- Optionally extracts compact context from `[FILE SUMMARY] ... [/FILE SUMMARY]` blocks.
+- Calls a Chat Completions endpoint.
+- Expects a **structured JSON** response that describes exact string replacements.
+- Shows a diff preview, applies the edits, and can create a git commit.
+
+The entire tool lives in a single script: `jisper.py`.
 
 ## Requirements
 
-- Python 3.11+ (recommended).
-- An API key in an environment variable (default: `OPENAI_API_KEY`).
-- A prompt config file (default: `prompt.yaml`).
+- Python 3.11+
+- An API key in an environment variable (default: `OPENAI_API_KEY`)
+- A prompt config file (default: `prompt.yaml`)
 
-## Usage
+## Quickstart
 
 Run with the default prompt file (`prompt.yaml`) and default task:
 
@@ -30,50 +33,29 @@ Use a specific prompt/config file:
 
 ```bash
 python jisper.py --prompt prompt.yaml
-# or
 python jisper.py -p prompt.json5
 ```
 
 Run a named routine (a task override from `routines` in the config):
 
 ```bash
-python jisper.py my_routine_name
+python jisper.py docs
 ```
 
-Undo the last commit created (hard reset to `HEAD~1`):
+Undo / redo the last commit created by Jisper:
 
 ```bash
 python jisper.py --undo
-```
-
-Redo an undo (reset to `ORIG_HEAD` when available):
-
-```bash
 python jisper.py --redo
 ```
 
-## How it works
+## How to think about it
 
-1. Jisper loads your prompt config.
-2. It builds the prompt content:
-   - `SYSTEM PROMPT:` from `system_prompt` in the config.
-   - `TASK:` from `task` (or a routine override).
-   - `FILE SUMMARIES (YAML):` extracted from `[FILE SUMMARY]` blocks (optional; controlled by which files you include).
-   - `SOURCE MATERIAL:` concatenated contents of the included files.
-3. It calls the configured chat completions endpoint.
-4. It parses the model response as JSON and reads `edit.replacements`.
-5. For each replacement it:
-   - Loads the target file.
-   - Replaces `old_string` with `new_string`.
-   - Prints a diff preview.
-   - Writes the updated file.
-6. If the current directory is a git repo and any files changed, it stages and commits them.
+Jisper is intentionally “dumb” about editing: the model does not return a patch, it returns a list of **(filename, old_string, new_string)** operations. That keeps the application step deterministic, makes failures obvious (can’t find `old_string`), and keeps the review loop tight (diff preview before write + git commit when available).
 
-## Prompt config format
+## Prompt config
 
-The config can be YAML (`.yaml`/`.yml`) or JSON5 (`.json`/`.json5`).
-
-### Minimal YAML example
+The config can be YAML (`.yaml`/`.yml`) or JSON5 (`.json`/`.json5`). A minimal YAML example:
 
 ```yaml
 system_prompt: >
@@ -86,7 +68,6 @@ task: >
 full_files:
   - jisper.py
 
-# Optional: use a model/endpoint override
 model: gpt-5.2
 endpoint: https://api.openai.com/v1/chat/completions
 api_key_env_var: OPENAI_API_KEY
@@ -94,32 +75,28 @@ api_key_env_var: OPENAI_API_KEY
 
 ### Routines (task overrides)
 
-You can define named routines and invoke them by passing the routine name as the positional CLI argument.
+Define named routines and invoke them by passing the routine name as the positional CLI argument:
 
 ```yaml
 task: >
   Default task if no routine is provided
 
 routines:
-  docs:
-    Write documentation updates
-  refactor:
-    Refactor the code to simplify the flow
+  docs: Write documentation updates
+  refactor: Refactor the code to simplify the flow
 ```
 
-## Included files and file summaries
+## Included files and `[FILE SUMMARY]` context
 
-You control which files are concatenated into `SOURCE MATERIAL` via these config keys:
+You control what gets sent as `SOURCE MATERIAL` via these config keys:
 
 - `full_files`: included in full.
-- `structural_level_files`: included in full, and also scanned for `[FILE SUMMARY]` blocks; if present, both `INTENT` and `STRUCTURAL` context may be included in the `FILE SUMMARIES` section.
-- `input_level_files`: included in full, and also scanned for `[FILE SUMMARY]` blocks; if present, only the `INTENT` context may be included in the `FILE SUMMARIES` section.
+- `structural_level_files`: included in full; if a `[FILE SUMMARY]` block exists, Jisper may include `INTENT` + `STRUCTURAL` context in a compact summaries section.
+- `input_level_files`: included in full; if a `[FILE SUMMARY]` block exists, Jisper may include only `INTENT` context.
 
-All three lists are concatenated, de-duplicated (keeping order), and read from disk.
+All lists are concatenated, de-duplicated (keeping order), and read from disk.
 
-### `[FILE SUMMARY]` blocks
-
-If a file contains a block like:
+A summary block looks like:
 
 ```text
 [FILE SUMMARY]
@@ -133,20 +110,18 @@ context:
 [/FILE SUMMARY]
 ```
 
-Jisper can extract and forward that YAML as compact context.
-
 ## Structured response contract
 
-Jisper expects the model to return JSON matching this shape:
+Jisper expects JSON with this shape:
 
 ```json
 {
-      "edit": {
-        "explanation": "1-2 sentence explanation",
+  "edit": {
+    "explanation": "1-2 sentence explanation",
     "commit_message": "Commit subject",
     "replacements": [
-          {
-            "filename": "README.md",
+      {
+        "filename": "README.md",
         "old_string": "...",
         "new_string": "..."
       }
@@ -155,30 +130,23 @@ Jisper expects the model to return JSON matching this shape:
 }
 ```
 
-Notes:
+Behavior notes:
 
-- Replacements are applied by exact substring match.
+- Replacements are applied by substring match.
 - If `old_string` is not found, Jisper prints a small preview and skips that replacement.
 - A whitespace-tolerant fallback is attempted (e.g. trimming `old_string`).
 
 ## Git behavior
 
-- If Jisper detects a git repo (walking upward from the current directory), it will:
-  - stage any changed files from the replacements, and
-  - create a commit using the model-provided `edit.commit_message` (or `Apply model edits` if missing).
-- If not in a git repo, it will still apply the changes but skip committing.
+If Jisper detects a git repo (walking upward from the current directory), it stages changed files and creates a commit using `edit.commit_message` (or `Apply model edits` if missing). Outside a repo it still applies edits, but skips committing.
 
 ## Cost reporting
 
-Jisper prints a simple cost line derived from token usage when available, using configured model prices:
-
-- Built-in defaults exist for a small set of model codes.
-- You can override or add prices via `model_prices_usd_per_1m` in the config.
-
-Example:
+Jisper prints a simple cost line derived from token usage when available. Defaults exist for a small set of model codes, and you can override/add prices via `model_prices_usd_per_1m`:
 
 ```yaml
 model_prices_usd_per_1m:
   gpt-5.2: [5.0, 15.0]
   my-model: [2.0, 6.0]
 ```
+
