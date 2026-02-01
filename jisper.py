@@ -1,3 +1,81 @@
+"""--- [FILE SUMMARY] context:
+  INTENT:
+    purpose: >
+      Provide a CLI that loads a prompt configuration, sends source material plus optional file-summary context to a chat completions endpoint, applies returned string replacements to local files, and optionally commits the result to git.
+
+  STRUCTURAL:
+    responsibility: >
+      Orchestrate end-to-end execution: read config and included files, build model payload with optional JSON schema, call the API, parse structured response, preview/apply replacements, and manage git commit/undo/redo.
+    boundaries:
+      owns:
+        - CLI entrypoint and argument parsing via Typer
+        - Prompt/config loading for YAML/JSON5
+        - Building request payload including file summaries derived from [FILE SUMMARY] blocks
+        - Calling the configured chat completions endpoint and extracting usage
+        - Applying model-provided replacements with diff preview
+        - Git staging/commit and undo/redo helpers
+      does_not_own:
+        - Authoring prompt content beyond reading config values
+        - Any model-side logic that determines edits
+        - Rich panel-based UI formatting or forced line wrapping control
+    entrypoints:
+      - name: app
+        kind: command
+        description: >
+          Typer application defining the CLI.
+      - name: main
+        kind: handler
+        signature: (routine: str | None, config: Path, undo: bool, redo: bool) -> None
+        description: >
+          CLI callback that optionally undo/redo, runs the model request, applies replacements, and commits changes.
+      - name: run
+        kind: function
+        signature: (config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]
+        description: >
+          Loads config, gathers source material, calls the endpoint, parses structured JSON output, and returns (model_output, usage, model_code).
+      - name: apply_replacements
+        kind: function
+        signature: (replacements, base_dir: Path | None = None) -> list[Path]
+        description: >
+          Applies replacement operations to files and returns the list of changed paths.
+    key_functions:
+      - name: load_prompt_file
+        signature: (path: Path) -> dict
+        purpose: >
+          Load prompt configuration from YAML or JSON5, returning a dict.
+      - name: build_payload
+        signature: (prompt_config: dict, source_text: str, routine_name: str | None = None)
+        purpose: >
+          Assemble the chat completions request, including system/user messages and optional JSON schema response_format.
+      - name: build_file_summaries_section
+        signature: (files: list[str], *, intent_only: bool) -> str
+        purpose: >
+          Extract and emit YAML summaries from [FILE SUMMARY] blocks for use as compressed context.
+      - name: extract_usage_from_api_response
+        signature: (api_json: dict, response_headers: dict) -> dict
+        purpose: >
+          Normalize token usage across body/header formats for cost reporting.
+      - name: apply_one_replacement
+        signature: (original: str, old_string: str, new_string: str) -> tuple[str | None, str]
+        purpose: >
+          Perform robust substring replacement with whitespace-tolerant matching and return updated text plus matched old fragment.
+      - name: stage_and_commit
+        signature: (repo: git.Repo, changed_files: list[Path], message: str) -> str | None
+        purpose: >
+          Stage changed paths relative to repo root and create a commit.
+      - name: undo_last_commit
+        signature: (base_dir: Path) -> int
+        purpose: >
+          Reset repository to HEAD~1.
+      - name: redo_last_commit
+        signature: (base_dir: Path) -> int
+        purpose: >
+          Reset repository to ORIG_HEAD when available.
+    dependencies:
+      - No internal project modules; this file is standalone and is invoked as the CLI script.
+[/FILE SUMMARY] ---
+"""
+
 import requests
 import os
 import json5 as json
