@@ -606,6 +606,43 @@ def guess_syntax_lexer_name(text: str) -> str:
     return "text"
 
 
+def guess_syntax_lexer_name_from_filename(filename: str | None) -> str | None:
+    name = as_non_empty_str(filename)
+    if not name:
+        return None
+
+    suffix = Path(name).suffix.lower()
+    ext_map = {
+        ".py": "python",
+        ".json": "json",
+        ".json5": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+        ".diff": "diff",
+        ".patch": "diff",
+        ".toml": "toml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".txt": "text",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".html": "html",
+        ".htm": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".sql": "sql",
+        ".xml": "xml",
+    }
+
+    return ext_map.get(suffix)
+
+
 def syntax_text(body: str, *, lexer_name: str) -> Text:
     s = Syntax(
         body,
@@ -627,6 +664,7 @@ def format_combined_diff_lines(
     to_start: int = 1,
     context_lines: int = 3,
     lexer_name: str | None = None,
+    filename: str | None = None,
 ) -> list[tuple[str, Text]]:
     diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
 
@@ -634,8 +672,9 @@ def format_combined_diff_lines(
     old_ln = from_start
     new_ln = to_start
 
-    old_lexer = lexer_name or guess_syntax_lexer_name(old_text)
-    new_lexer = lexer_name or guess_syntax_lexer_name(new_text)
+    filename_lexer = guess_syntax_lexer_name_from_filename(filename)
+    old_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(old_text)
+    new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
 
     def push(kind: str, line: Text):
         out.append((kind, line[:-1]))
@@ -695,6 +734,7 @@ def print_numbered_combined_diff(
     context_lines: int = 3,
     title: str | None = None,
     lexer_name: str | None = None,
+    filename: str | None = None,
 ):
     if title:
         console.print(f"\n{title}")
@@ -706,6 +746,7 @@ def print_numbered_combined_diff(
         to_start=to_start,
         context_lines=context_lines,
         lexer_name=lexer_name,
+        filename=filename,
     )
 
     if not lines:
@@ -727,6 +768,7 @@ def print_change_preview(filename: str, old_string: str, new_string: str, origin
         to_start=new_start,
         context_lines=2,
         title=filename,
+        filename=filename,
     )
 
 
@@ -772,7 +814,15 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
     def preview_missing_old(filename: str, old_string: str, new_string: str):
         print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
-        print_numbered_combined_diff(old_string, new_string, from_start=1, to_start=1, context_lines=2, title="Replacement text (preview)")
+        print_numbered_combined_diff(
+            old_string,
+            new_string,
+            from_start=1,
+            to_start=1,
+            context_lines=2,
+            title="Replacement text (preview)",
+            filename=filename,
+        )
 
     def apply_one(i_r) -> Path | None:
         i, r = i_r
