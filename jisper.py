@@ -23,56 +23,48 @@ DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
 DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
 DEFAULT_OUTPUT_SCHEMA = {
-        "type": "object",
-        "properties": {
+    "type": "object",
+    "properties": {
         "edit": {
             "type": "object",
             "properties": {
-            "explanation": {
-                "type": "string",
-                "description": "An short 1-2 sentence explanation of the changes you are making"
-            },
-            "commit_message": {
-                "type": "string",
-                "description": "The commit message to use for the changes you are making"
-            },
-            "replacements": {
-                "type": "array",
-                "items": {
-                "type": "object",
-                "properties": {
-                    "filename": {
+                "explanation": {
                     "type": "string",
-                    "description": "The file in which to apply the edit"
-                    },
-                    "old_string": {
-                    "type": "string",
-                    "description": "The old string to replace in the file"
-                    },
-                    "new_string": {
-                    "type": "string",
-                    "description": "The new string to add"
-                    }
+                    "description": "An short 1-2 sentence explanation of the changes you are making",
                 },
-                "required": [
-                    "filename",
-                    "old_string",
-                    "new_string"
-                ],
-                "additionalProperties": False
-                }
-            }
+                "commit_message": {
+                    "type": "string",
+                    "description": "The commit message to use for the changes you are making",
+                },
+                "replacements": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "filename": {
+                                "type": "string",
+                                "description": "The file in which to apply the edit",
+                            },
+                            "old_string": {
+                                "type": "string",
+                                "description": "The old string to replace in the file",
+                            },
+                            "new_string": {
+                                "type": "string",
+                                "description": "The new string to add",
+                            },
+                        },
+                        "required": ["filename", "old_string", "new_string"],
+                        "additionalProperties": False,
+                    },
+                },
             },
-            "required": [
-            "explanation",
-            "commit_message",
-            "replacements"
-            ],
-            "additionalProperties": False
+            "required": ["explanation", "commit_message", "replacements"],
+            "additionalProperties": False,
         }
-        },
-        "required": ["edit"]
-    }
+    },
+    "required": ["edit"],
+}
 
 
 MODEL_PRICES_USD_PER_1M = {
@@ -209,28 +201,26 @@ def get_endpoint_url(config: dict) -> str:
 def get_api_key_from_env(env_var_name: str) -> str | None:
     return env_non_empty(env_var_name)
 
+
 def is_file_header_line(line: str) -> bool:
-    """Return True for unified-diff file header lines (---/+++)."""
     return line.startswith("---") or line.startswith("+++")
 
 
 def is_hunk_header_line(line: str) -> bool:
-    """Return True for unified-diff hunk header lines (@@ ... @@)."""
     return line.startswith("@@")
 
 
 def is_diff_meta_line(line: str) -> bool:
-    """Return True for unified-diff metadata lines that are not content."""
     return is_file_header_line(line) or is_hunk_header_line(line)
 
+
 def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
-    """Format an optional line number into a fixed-width field for diff output."""
     if ln is None:
         return " " * width
     return f"{ln:>{width}}"
 
+
 def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
-    """Create a fixed-width line-number Text with an optional style."""
     s = format_fixed_width_line_number(ln, width=width)
     t = Text(s)
     if style and ln is not None:
@@ -253,15 +243,11 @@ def load_prompt_file(path: Path) -> dict:
         return loaded if isinstance(loaded, dict) else {}
     return read_json5(path)
 
-def read_file_text_or_none(path: Path) -> str | None:
-    return read_text_or_none(path)
-
 
 def read_and_concatenate_files(file_list):
-    """Read a list of files and concatenate them into a single labeled source block."""
     def one(filename: str) -> str | None:
         p = Path(filename)
-        txt = read_file_text_or_none(p)
+        txt = read_text_or_none(p)
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
             return None
@@ -270,7 +256,6 @@ def read_and_concatenate_files(file_list):
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
 def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
-    """Build the chat-completions request payload from config and concatenated source text."""
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
@@ -319,7 +304,6 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
 
 
 def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
-    """Resolve input/output token prices for a model from config, known defaults, or fallbacks."""
     conf_prices = config.get("model_prices_usd_per_1m")
     if isinstance(conf_prices, dict):
         v = conf_prices.get(model_code)
@@ -340,7 +324,6 @@ def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, f
 
 
 def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
-    """Estimate request cost in USD from token counts and per-1M pricing."""
     if prompt_tokens is None and completion_tokens is None:
         return None
     pt = float(prompt_tokens or 0)
@@ -356,7 +339,6 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
 
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
-    """Call the model API using the config file and return parsed output, usage, and model code."""
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
@@ -391,7 +373,6 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
 
 def find_substring_start_line(haystack: str, needle: str) -> int | None:
-    """Return 1-based line number where needle begins in haystack, or None."""
     if not needle:
         return None
     idx = haystack.find(needle)
@@ -401,16 +382,13 @@ def find_substring_start_line(haystack: str, needle: str) -> int | None:
 
 
 def compute_replacement_line_numbers(original: str, matched_old: str, new_string: str) -> tuple[int, int] | None:
-    """Compute starting line numbers (old_start, new_start) for the replacement in a file."""
     old_start = find_substring_start_line(original, matched_old)
     if old_start is None:
         return None
-    new_start = old_start
-    return (old_start, new_start)
+    return (old_start, old_start)
 
 
 def print_no_diff_notice():
-    """Print a standardized message indicating there is no diff to display."""
     console.print("[yellow](no diff; content is identical)[/yellow]")
 
 
@@ -420,7 +398,6 @@ def unified_diff_lines(
     *,
     context_lines: int = 3,
 ) -> list[str]:
-    """Compute unified-diff lines between two strings with configurable context."""
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
@@ -466,7 +443,6 @@ def format_combined_diff_lines(
     context_lines: int = 3,
     lexer_name: str | None = None,
 ) -> list[tuple[str, Text]]:
-    """Render unified-diff output into typed Rich Text lines with line numbers."""
     diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
 
     out: list[tuple[str, Text]] = []
@@ -535,7 +511,6 @@ def print_numbered_combined_diff(
     title: str | None = None,
     lexer_name: str | None = None,
 ):
-    """Print a numbered, colorized combined diff between two text blocks."""
     if title:
         console.print(f"\n{title}")
 
@@ -556,7 +531,6 @@ def print_numbered_combined_diff(
         console.print(t)
 
 def print_change_preview(filename: str, old_string: str, new_string: str, original: str):
-    """Print a focused diff preview of a pending replacement within a file."""
     line_info = compute_replacement_line_numbers(original, old_string, new_string)
     old_start = line_info[0] if line_info else 1
     new_start = line_info[1] if line_info else 1
@@ -597,7 +571,6 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
 
 
 def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
-    """Apply {filename, old_string, new_string} edits to files on disk."""
     base_dir = base_dir or Path.cwd()
 
     def get_fields(i: int, r: dict) -> tuple[str | None, str | None, str | None] | None:
@@ -646,7 +619,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
 
 def print_model_change_notes(model_output: dict):
-    """Print the model response and edit explanation (if present)."""
     if not isinstance(model_output, dict):
         return
 
@@ -655,7 +627,6 @@ def print_model_change_notes(model_output: dict):
 
 
 def extract_commit_message(model_output: dict) -> str | None:
-    """Extract a commit message from model output using common schema locations."""
     if not isinstance(model_output, dict):
         return None
 
@@ -663,7 +634,6 @@ def extract_commit_message(model_output: dict) -> str | None:
 
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
-    """Find and open the nearest git repository at or above a directory."""
     if (base_dir / ".git").exists():
         return git.Repo(base_dir)
 
@@ -677,7 +647,6 @@ def repo_from_dir(base_dir: Path) -> git.Repo | None:
 
 
 def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
-    """Stage a set of changed files and create a commit with the given message."""
     repo_root = Path(repo.working_tree_dir or ".").resolve()
     relpaths = list(map(lambda p: str(p.resolve().relative_to(repo_root)), changed_files))
     relpaths = list(filter(lambda s: bool(s and s.strip()), relpaths))
@@ -691,7 +660,6 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
 
 
 def undo_last_commit(base_dir: Path) -> int:
-    """Undo the most recent commit by resetting HEAD and the working tree to its parent."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
@@ -710,7 +678,6 @@ def undo_last_commit(base_dir: Path) -> int:
 
 
 def redo_last_commit(base_dir: Path) -> int:
-    """Redo an undone commit by restoring HEAD and the working tree to ORIG_HEAD when available."""
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
