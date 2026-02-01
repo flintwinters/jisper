@@ -122,6 +122,101 @@ def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
     task = as_non_empty_str(task)
     return task
 
+def as_list_of_non_empty_str(v) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    out = list(filter(None, map(as_non_empty_str, v)))
+    return list(map(str, out))
+
+def dedupe_keep_order(xs: list[str]) -> list[str]:
+    seen = set()
+
+    def keep(x: str) -> bool:
+        if x in seen:
+            return False
+        seen.add(x)
+        return True
+
+    return list(filter(keep, xs or []))
+
+def resolve_included_files(config: dict) -> dict:
+    full_files = as_list_of_non_empty_str(dict_get(config, "full_files"))
+    structural_level_files = as_list_of_non_empty_str(dict_get(config, "structural_level_files"))
+    input_level_files = as_list_of_non_empty_str(dict_get(config, "input_level_files"))
+    source_files = dedupe_keep_order(full_files + structural_level_files + input_level_files)
+    return {
+        "full_files": full_files,
+        "structural_level_files": structural_level_files,
+        "input_level_files": input_level_files,
+        "source_files": source_files,
+    }
+
+def extract_file_summary_yaml(text: str) -> dict | None:
+    s = as_non_empty_str(text)
+    if not s:
+        return None
+
+    start_tag = "[FILE SUMMARY]"
+    end_tag = "[/FILE SUMMARY]"
+    start = s.find(start_tag)
+    if start < 0:
+        return None
+    end = s.find(end_tag, start + len(start_tag))
+    if end < 0:
+        return None
+
+    inner = s[start + len(start_tag):end]
+    inner = inner.strip("\n")
+    inner = inner.strip()
+    if not inner:
+        return None
+
+    loaded = yaml.safe_load(inner)
+    return loaded if isinstance(loaded, dict) else None
+
+def dump_yaml_block(d: dict) -> str:
+    return yaml.safe_dump(d, sort_keys=False).rstrip() if isinstance(d, dict) else ""
+
+def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
+    ctx = dict_get(summary, "context")
+    if not isinstance(ctx, dict):
+        return None
+
+    intent = dict_get(ctx, "INTENT")
+    structural = dict_get(ctx, "STRUCTURAL")
+
+    if intent_only:
+        return {"context": {"INTENT": intent}} if isinstance(intent, dict) else None
+
+    out_ctx = {}
+    if isinstance(intent, dict):
+        out_ctx["INTENT"] = intent
+    if isinstance(structural, dict):
+        out_ctx["STRUCTURAL"] = structural
+    return {"context": out_ctx} if out_ctx else None
+
+def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
+    def one(filename: str) -> str | None:
+        p = Path(filename)
+        txt = read_text_or_none(p)
+        if txt is None:
+            print(f"[red]Missing input file: {filename}[/red]")
+            return None
+
+        summary = extract_file_summary_yaml(txt)
+        if summary is None:
+            return None
+
+        selected = select_context_fields(summary, intent_only=intent_only)
+        if selected is None:
+            return None
+
+        dumped = dump_yaml_block(selected)
+        return f"--- FILENAME: {p.name} ---\n{dumped}" if dumped else None
+
+    joined = "\n\n".join(filter(None, map(one, files or [])))
+    return joined.strip() if joined else ""
+
 @app.callback(invoke_without_command=True)
 def main(
     routine: str | None = typer.Argument(
@@ -262,7 +357,18 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
-    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}\n\nSOURCE MATERIAL:\n{source_text}"
+    includes = resolve_included_files(prompt_config)
+    structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
+    input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+
+    summaries_parts = list(filter(None, [
+        f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
+        f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
+    ]))
+    summaries_blob = "\n\n".join(summaries_parts)
+    summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
+
+    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}{summaries_chunk}\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
         "model": model_code,
@@ -353,7 +459,8 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     api_key_env_var = get_api_key_env_var_name(config)
     api_key = get_api_key_from_env(api_key_env_var)
 
-    concatenated_text = read_and_concatenate_files(config["foreground_files"])
+    includes = resolve_included_files(config)
+    concatenated_text = read_and_concatenate_files(includes["source_files"])
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
