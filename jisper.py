@@ -1,3 +1,66 @@
+# === AI-FILE-SUMMARY ===
+# File: jisper.py
+# Purpose: CLI tool that sends configured source files to a chat-completions API, applies structured in-file string replacements, previews diffs, and optionally commits via git.
+# Domain: developer tooling
+# Responsibilities:
+#   - Load JSON5 prompt/config and concatenate input files
+#   - Build and send chat-completions requests with optional JSON schema response_format
+#   - Parse model output, print explanation, and apply file replacements with diff previews
+#   - Stage and commit changed files or undo/redo last commit
+#   - Estimate and print token usage cost using model pricing
+# Public API:
+#   - main(config: Path=..., undo: bool=..., redo: bool=...) - Typer callback/CLI entry handling run/apply/commit/undo/redo.
+#   - run(config_path: Path) -> tuple[dict, dict, str] - Execute API call and return (model_output, usage, model_code).
+#   - apply_replacements(replacements, base_dir: Path | None=None) -> list[Path] - Apply replacement edits to files on disk.
+#   - stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None - Stage paths and create a git commit.
+#   - undo_last_commit(base_dir: Path) -> int - Hard-reset repo to HEAD~1.
+#   - redo_last_commit(base_dir: Path) -> int - Hard-reset repo to ORIG_HEAD.
+# Internal Functions:
+#   - as_non_empty_str - Normalize value to non-empty stripped string.
+#   - dict_get - Safe dict getter with default.
+#   - coerce_int - Coerce common numeric encodings to int.
+#   - lower_keys - Lowercase dict keys.
+#   - read_text_or_none - Read UTF-8 text if path exists.
+#   - read_json5 - Load JSON5 file into dict.
+#   - env_non_empty - Read non-empty environment variable.
+#   - get_base_config_value/get_model_code/get_api_key_env_var_name/get_endpoint_url - Resolve config defaults.
+#   - get_api_key_from_env - Read API key value.
+#   - is_file_header_line/is_hunk_header_line/is_diff_meta_line - Diff line classifiers.
+#   - format_fixed_width_line_number/styled_line_number - Diff line number formatting.
+#   - get_nested_str - Traverse nested dict path for string.
+#   - load_prompt_file/read_file_text_or_none/read_and_concatenate_files - Input loading.
+#   - build_payload - Construct API request payload.
+#   - extract_usage_from_api_response - Parse token usage from JSON/headers.
+#   - get_model_prices_usd_per_1m/estimate_cost_usd/format_token_cost_line - Pricing and cost formatting.
+#   - find_substring_start_line/compute_replacement_line_numbers - Locate replacement start line.
+#   - print_no_diff_notice/unified_diff_lines/guess_syntax_lexer_name/syntax_text - Diff rendering helpers.
+#   - format_combined_diff_lines/print_numbered_combined_diff/print_change_preview - Diff preview output.
+#   - apply_one_replacement - Perform tolerant replacement matching.
+#   - print_model_change_notes/extract_commit_message - Display/extract model metadata.
+#   - repo_from_dir - Locate enclosing git repo.
+# Data Structures:
+#   - DEFAULT_OUTPUT_SCHEMA - JSON schema for structured model edits.
+#   - MODEL_PRICES_USD_PER_1M - Map of model code to (input, output) USD per 1M tokens.
+# Side Effects:
+#   - fs | net | io
+# Dependencies:
+#   - requests
+#   - os
+#   - json5
+#   - difflib
+#   - pathlib
+#   - git
+#   - typer
+#   - rich
+# Entry Points:
+#   - main
+# Invariants:
+#   - Replacement edits only apply when old_string (or trimmed variants) matches content.
+#   - Diff preview uses Rich Console with soft_wrap=True.
+# AI Notes:
+#   - Output is intended to be copypasteable; avoid hard-wrapping or panel-based rendering.
+# === /AI-FILE-SUMMARY ===
+
 import requests
 import os
 import json5 as json
@@ -21,6 +84,57 @@ DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
 DEFAULT_FALLBACK_OUTPUT_USD_PER_1M = 15.0
+DEFAULT_OUTPUT_SCHEMA = {
+        "type": "object",
+        "properties": {
+        "edit": {
+            "type": "object",
+            "properties": {
+            "explanation": {
+                "type": "string",
+                "description": "An short 1-2 sentence explanation of the changes you are making"
+            },
+            "commit_message": {
+                "type": "string",
+                "description": "The commit message to use for the changes you are making"
+            },
+            "replacements": {
+                "type": "array",
+                "items": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                    "type": "string",
+                    "description": "The file in which to apply the edit"
+                    },
+                    "old_string": {
+                    "type": "string",
+                    "description": "The old string to replace in the file"
+                    },
+                    "new_string": {
+                    "type": "string",
+                    "description": "The new string to add"
+                    }
+                },
+                "required": [
+                    "filename",
+                    "old_string",
+                    "new_string"
+                ],
+                "additionalProperties": False
+                }
+            }
+            },
+            "required": [
+            "explanation",
+            "commit_message",
+            "replacements"
+            ],
+            "additionalProperties": False
+        }
+        },
+        "required": ["edit"]
+    }
 
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
@@ -197,7 +311,7 @@ def build_payload(prompt_config: dict, source_text: str):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = prompt_config["task"]
-    schema = prompt_config["output_schema"]
+    schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
     prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}\n\nSOURCE MATERIAL:\n{source_text}"
