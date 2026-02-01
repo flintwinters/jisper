@@ -28,12 +28,12 @@ context:
         - Model-side instruction quality and correctness of replacements (owned by prompt/system_prompt)
         - External endpoint behavior, authentication correctness, or network reliability
     entrypoints:
-      - name: app
-      - name: main
-      - name: run
-      - name: apply_replacements
-      - name: undo_last_commit
-      - name: redo_last_commit
+      - app
+      - main
+      - run
+      - apply_replacements
+      - undo_last_commit
+      - redo_last_commit
     key_functions:
       - name: load_prompt_file
         signature: load_prompt_file(path: Path) -> dict
@@ -250,7 +250,7 @@ def extract_file_summary_yaml(text: str) -> dict | None:
     if end < 0:
         return None
 
-    inner = s[start + len(start_tag):end]
+    inner = s[start + len(start_tag) : end]
     inner = inner.strip("\n")
     inner = inner.strip()
     if not inner:
@@ -391,7 +391,7 @@ def is_hunk_header_line(line: str) -> bool:
 
 
 def is_diff_meta_line(line: str) -> bool:
-    return is_file_header_line(line) or is_hunk_header_line(line)
+    return is_file_header_line(line)
 
 
 def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
@@ -446,10 +446,15 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
     input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
 
-    summaries_parts = list(filter(None, [
-        f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
-        f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
-    ]))
+    summaries_parts = list(
+        filter(
+            None,
+            [
+                f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
+                f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
+            ],
+        )
+    )
     summaries_blob = "\n\n".join(summaries_parts)
     summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
 
@@ -564,22 +569,6 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     return (model_out, usage, model_code)
 
 
-def find_substring_start_line(haystack: str, needle: str) -> int | None:
-    if not needle:
-        return None
-    idx = haystack.find(needle)
-    if idx < 0:
-        return None
-    return haystack[:idx].count("\n") + 1
-
-
-def compute_replacement_line_numbers(original: str, matched_old: str, new_string: str) -> tuple[int, int] | None:
-    old_start = find_substring_start_line(original, matched_old)
-    if old_start is None:
-        return None
-    return (old_start, old_start)
-
-
 def print_no_diff_notice():
     console.print("[yellow](no diff; content is identical)[/yellow]")
 
@@ -589,10 +578,12 @@ def unified_diff_lines(
     new_text: str,
     *,
     context_lines: int = 3,
+    fromfile: str = "a",
+    tofile: str = "b",
 ) -> list[str]:
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
-    return list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=context_lines))
+    return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
 
 
 def guess_syntax_lexer_name(text: str) -> str:
@@ -663,12 +654,52 @@ def syntax_text(body: str, *, lexer_name: str) -> Text:
     return s.highlight(body)
 
 
+def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
+    if not is_hunk_header_line(line):
+        return None
+
+    s = line.strip()
+    if not (s.startswith("@@") and s.endswith("@@")):
+        at = s.find("@@", 2)
+        if at < 0:
+            return None
+        s = s[: at + 2]
+
+    inner = s.strip("@ ")
+    parts = inner.split(" ")
+    parts = list(filter(None, parts))
+    if len(parts) < 2:
+        return None
+
+    old_part = parts[0]
+    new_part = parts[1]
+    if not (old_part.startswith("-") and new_part.startswith("+")):
+        return None
+
+    def parse_range(p: str) -> tuple[int, int] | None:
+        core = p[1:]
+        if "," in core:
+            a, b = core.split(",", 1)
+            a_i = coerce_int(a)
+            b_i = coerce_int(b)
+            return (a_i, b_i) if a_i is not None and b_i is not None else None
+        a_i = coerce_int(core)
+        return (a_i, 1) if a_i is not None else None
+
+    old_r = parse_range(old_part)
+    new_r = parse_range(new_part)
+    if old_r is None or new_r is None:
+        return None
+
+    old_start, old_len = old_r
+    new_start, new_len = new_r
+    return (old_start, old_len, new_start, new_len)
+
+
 def format_combined_diff_lines(
     old_text: str,
     new_text: str,
     *,
-    from_start: int = 1,
-    to_start: int = 1,
     context_lines: int = 3,
     lexer_name: str | None = None,
     filename: str | None = None,
@@ -676,8 +707,6 @@ def format_combined_diff_lines(
     diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
 
     out: list[tuple[str, Text]] = []
-    old_ln = from_start
-    new_ln = to_start
 
     filename_lexer = guess_syntax_lexer_name_from_filename(filename)
     old_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(old_text)
@@ -686,48 +715,43 @@ def format_combined_diff_lines(
     def push(kind: str, line: Text):
         out.append((kind, line[:-1]))
 
-    def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str, lexer: str) -> Text:
-        return styled_line_number(ln, style=style) + Text(mid) + syntax_text(body, lexer_name=lexer)
+    def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
+        return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
 
-    def flush_pending_minus(pending: str | None) -> str | None:
-        nonlocal old_ln
-        if pending is None:
-            return None
-        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending[1:], lexer=old_lexer))
-        old_ln += 1
-        return None
-
-    pending_minus: str | None = None
+    old_ln = 1
+    new_ln = 1
 
     for line in diff_lines:
-        if is_diff_meta_line(line) or not line:
+        if is_file_header_line(line) or not line:
+            continue
+
+        if is_hunk_header_line(line):
+            parsed = parse_unified_hunk_header(line)
+            if parsed is not None:
+                old_ln = parsed[0]
+                new_ln = parsed[2]
             continue
 
         prefix = line[:1]
         body = line[1:]
 
         if prefix == " ":
-            pending_minus = flush_pending_minus(pending_minus)
-            push("context", numbered_line(new_ln, style=None, mid="   ", body=body, lexer=new_lexer))
+            push("context", numbered_line(new_ln, left_style=None, mid="   ", body=body, lexer=new_lexer))
             old_ln += 1
             new_ln += 1
             continue
 
         if prefix == "-":
-            pending_minus = flush_pending_minus(pending_minus)
-            pending_minus = line
+            push("delete", numbered_line(old_ln, left_style="bright_red on dark_red", mid=" - ", body=body, lexer=old_lexer))
+            old_ln += 1
             continue
 
         if prefix == "+":
-            pending_minus = flush_pending_minus(pending_minus)
-            push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
+            push("insert", numbered_line(new_ln, left_style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
             new_ln += 1
             continue
 
-        pending_minus = flush_pending_minus(pending_minus)
         push("header", Text(line))
-
-    flush_pending_minus(pending_minus)
 
     return out
 
@@ -736,8 +760,6 @@ def print_numbered_combined_diff(
     old_text: str,
     new_text: str,
     *,
-    from_start: int = 1,
-    to_start: int = 1,
     context_lines: int = 3,
     title: str | None = None,
     lexer_name: str | None = None,
@@ -749,8 +771,6 @@ def print_numbered_combined_diff(
     lines = format_combined_diff_lines(
         old_text,
         new_text,
-        from_start=from_start,
-        to_start=to_start,
         context_lines=context_lines,
         lexer_name=lexer_name,
         filename=filename,
@@ -763,16 +783,11 @@ def print_numbered_combined_diff(
     for _, t in lines:
         console.print(t)
 
-def print_change_preview(filename: str, old_string: str, new_string: str, original: str):
-    line_info = compute_replacement_line_numbers(original, old_string, new_string)
-    old_start = line_info[0] if line_info else 1
-    new_start = line_info[1] if line_info else 1
 
+def print_change_preview(filename: str, original: str, updated: str):
     print_numbered_combined_diff(
-        old_string,
-        new_string,
-        from_start=old_start,
-        to_start=new_start,
+        original,
+        updated,
         context_lines=2,
         title=filename,
         filename=filename,
@@ -796,7 +811,7 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
         trimmed_old = old_string.strip()
         if stripped_original and trimmed_old and trimmed_old in stripped_original:
             leading = original[: len(original) - len(original.lstrip())]
-            trailing = original[len(original.rstrip()):]
+            trailing = original[len(original.rstrip()) :]
             replaced_core = stripped_original.replace(trimmed_old, new_string)
             updated = f"{leading}{replaced_core}{trailing}"
             matched_old = trimmed_old
@@ -824,8 +839,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         print_numbered_combined_diff(
             old_string,
             new_string,
-            from_start=1,
-            to_start=1,
             context_lines=2,
             title="Replacement text (preview)",
             filename=filename,
@@ -846,7 +859,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         if original is None and target_path.exists() is False:
             if can_create_missing_file(old_string):
                 target_path.parent.mkdir(parents=True, exist_ok=True)
-                print_change_preview(filename, "", new_string, "")
+                print_change_preview(filename, "", new_string)
                 target_path.write_text(new_string, encoding="utf-8")
                 return target_path
             print(f"[red]Target file not found: {target_path}[/red]")
@@ -856,7 +869,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
-        updated, matched_old = apply_one_replacement(original, old_string, new_string)
+        updated, _matched_old = apply_one_replacement(original, old_string, new_string)
         if updated is None:
             preview_missing_old(filename, old_string, new_string)
             return None
@@ -865,7 +878,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
 
-        print_change_preview(filename, matched_old, new_string, original)
+        print_change_preview(filename, original, updated)
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
