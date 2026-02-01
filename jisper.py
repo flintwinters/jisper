@@ -11,7 +11,7 @@ from rich.text import Text
 from rich.syntax import Syntax
 
 def make_console() -> Console:
-    return Console(soft_wrap=False, markup=False, highlight=False, no_color=False)
+    return Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 
 console = make_console()
 app = typer.Typer(add_completion=False)
