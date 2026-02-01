@@ -10,10 +10,9 @@ from rich.console import Console
 from rich.text import Text
 from rich.syntax import Syntax
 
-def make_console() -> Console:
-    return Console(soft_wrap=False, markup=False, highlight=False, no_color=False)
 
-console = make_console()
+# soft_wrap=True is VERY IMPORTANT for ergonomics.  DO NOT CHANGE
+console = Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.json"
@@ -111,7 +110,7 @@ def main(
     if repo is not None and changed_files:
         committed_message = stage_and_commit(repo, changed_files, commit_message)
         if committed_message:
-            print(f"[green]Committed changes:[/green] {committed_message}")
+            print(f"\n[green]Committed changes:[/green] {committed_message}")
     if repo is not None and not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
 
@@ -389,19 +388,20 @@ def format_combined_diff_lines(
     old_ln = from_start
     new_ln = to_start
 
-    guessed_lexer = lexer_name or guess_syntax_lexer_name(new_text or old_text)
+    old_lexer = lexer_name or guess_syntax_lexer_name(old_text)
+    new_lexer = lexer_name or guess_syntax_lexer_name(new_text)
 
     def push(kind: str, line: Text):
         out.append((kind, line[:-1]))
 
-    def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str) -> Text:
-        return styled_line_number(ln, style=style) + Text(mid) + syntax_text(body, lexer_name=guessed_lexer)
+    def numbered_line(ln: int | None, *, style: str | None, mid: str, body: str, lexer: str) -> Text:
+        return styled_line_number(ln, style=style) + Text(mid) + syntax_text(body, lexer_name=lexer)
 
     def flush_pending_minus(pending: str | None) -> str | None:
         nonlocal old_ln
         if pending is None:
             return None
-        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending[1:]))
+        push("delete", numbered_line(old_ln, style="bright_red on dark_red", mid=" - ", body=pending[1:], lexer=old_lexer))
         old_ln += 1
         return None
 
@@ -416,7 +416,7 @@ def format_combined_diff_lines(
 
         if prefix == " ":
             pending_minus = flush_pending_minus(pending_minus)
-            push("context", numbered_line(new_ln, style=None, mid="   ", body=body))
+            push("context", numbered_line(new_ln, style=None, mid="   ", body=body, lexer=new_lexer))
             old_ln += 1
             new_ln += 1
             continue
@@ -428,7 +428,7 @@ def format_combined_diff_lines(
 
         if prefix == "+":
             pending_minus = flush_pending_minus(pending_minus)
-            push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body))
+            push("insert", numbered_line(new_ln, style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
             new_ln += 1
             continue
 
