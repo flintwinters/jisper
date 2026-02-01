@@ -1,3 +1,39 @@
+<!--
+[FILE SUMMARY]
+context:
+  INTENT:
+    purpose: >
+      Project README documenting what Jisper is, how to configure it, and the structured response
+      contract it expects so users can run repeatable, reviewable LLM-driven code edits.
+
+  STRUCTURAL:
+    responsibility: >
+      Defines the user-facing behavior contract: prompt config keys, file-inclusion semantics,
+      optional [FILE SUMMARY] context extraction rules, structured JSON response shape, and git
+      behavior expectations.
+    boundaries:
+      owns:
+        - High-level description of the CLI workflow (configure -> send files -> preview -> apply -> commit)
+        - Prompt config schema surface (system_prompt/task/routines/file lists/model/endpoint/api key)
+        - Explanation of [FILE SUMMARY] blocks and how they are used for context compression
+        - Structured response JSON contract and replacement application rules
+        - Git and cost-reporting behavior documentation at a user level
+      does_not_own:
+        - Implementation details of HTTP calls, diff rendering, or file mutation logic (owned by jisper.py)
+        - Exact pricing tables and token extraction mechanics beyond user-facing knobs
+    entrypoints:
+      - name: README
+    key_functions:
+      - name: Prompt config
+        purpose: >
+          Documents the configuration surface area that jisper.py loads and enforces.
+      - name: Structured response contract
+        purpose: >
+          Documents the JSON shape required for deterministic application of model edits.
+    dependencies:
+      - jisper.py
+[/FILE SUMMARY]
+-->
 # Jisper
 
 Jisper is a small CLI for making LLM-driven code edits **repeatable and reviewable**.
