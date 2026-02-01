@@ -824,6 +824,9 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             filename=filename,
         )
 
+    def can_create_missing_file(old_string: str) -> bool:
+        return as_non_empty_str(old_string) is None
+
     def apply_one(i_r) -> Path | None:
         i, r = i_r
         fields = get_fields(i, r or {})
@@ -833,6 +836,15 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
         target_path = (base_dir / filename).resolve()
         original = read_text_or_none(target_path)
+        if original is None and target_path.exists() is False:
+            if can_create_missing_file(old_string):
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                print_change_preview(filename, "", new_string, "")
+                target_path.write_text(new_string, encoding="utf-8")
+                return target_path
+            print(f"[red]Target file not found: {target_path}[/red]")
+            return None
+
         if original is None:
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
