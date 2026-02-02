@@ -224,10 +224,53 @@ def dedupe_keep_order(xs: list[str]) -> list[str]:
 
     return list(filter(keep, xs or []))
 
+def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
+    def to_rel(p: Path) -> str:
+        try_rel = p.resolve()
+        base = base_dir.resolve()
+        return str(try_rel.relative_to(base)) if str(try_rel).startswith(str(base)) else str(p)
+
+    def one(v: str) -> list[str]:
+        s = as_non_empty_str(v)
+        if not s:
+            return []
+
+        p = (base_dir / s)
+        if p.exists() and p.is_dir():
+            return list(
+                map(
+                    to_rel,
+                    filter(
+                        lambda c: c.is_file(),
+                        sorted(p.iterdir(), key=lambda x: x.name),
+                    ),
+                )
+            )
+
+        if p.exists() and p.is_file():
+            return [to_rel(p)]
+
+        matches = sorted(map(to_rel, filter(lambda m: m.is_file(), base_dir.glob(s))))
+        return matches
+
+    return dedupe_keep_order(sum(map(one, values or []), []))
+
+def subtract_with_order(primary: list[str], subtract: set[str]) -> list[str]:
+    return list(filter(lambda s: s not in subtract, primary or []))
+
 def resolve_included_files(config: dict) -> dict:
-    full_files = as_list_of_non_empty_str(dict_get(config, "full_files"))
-    structural_level_files = as_list_of_non_empty_str(dict_get(config, "structural_level_files"))
-    input_level_files = as_list_of_non_empty_str(dict_get(config, "input_level_files"))
+    base_dir = Path.cwd()
+    full_raw = as_list_of_non_empty_str(dict_get(config, "full_files"))
+    structural_raw = as_list_of_non_empty_str(dict_get(config, "structural_level_files"))
+    input_raw = as_list_of_non_empty_str(dict_get(config, "input_level_files"))
+
+    input_level_files = resolve_paths_and_globs(input_raw, base_dir=base_dir)
+    structural_level_files = resolve_paths_and_globs(structural_raw, base_dir=base_dir)
+    lower_level_set = set(input_level_files + structural_level_files)
+
+    full_files = resolve_paths_and_globs(full_raw, base_dir=base_dir)
+    full_files = subtract_with_order(full_files, lower_level_set)
+
     source_files = dedupe_keep_order(full_files + structural_level_files + input_level_files)
     return {
         "full_files": full_files,
