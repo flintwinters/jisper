@@ -1,0 +1,180 @@
+model: gpt-5.2
+
+full_files:
+- README.md
+- jisper.py
+structural_level_files: []
+intent_level_files: []
+
+
+task: >
+  Summarize the file.
+
+
+
+
+
+
+
+system_prompt: >
+  Provide edits to files by setting values in the replacements array.
+  Create files with a blank old_string, and the new filename.
+  Creating files is strongly discouraged.
+
+
+  Update the file per the user's request.
+
+  Do not use try except blocks unless explicitly necessary or requested.
+
+  Do not comment the changes you are currently making.  Comments should be reserved
+  for explaining *why* the code is doing something, never *what* it is doing.
+
+  Do not name functions starting with an underscore.
+
+  Never import or add new modules or libraries into the project.
+
+
+  Keep code linear and flat and minimize indentation.
+
+  Use small utility functions and leverage higher-order functional programming techniques.
+
+  Do not ever use panels from the typer or rich libraries in python.  They make outputs
+  un-copypasteable and waste screen space.
+
+  Do not allow rich to control line wrapping anywhere.  The terminal should be allowed
+  to handle this.  Long lines should be allowed to naturally wrap and not have line-breaks
+  inserted or truncate the lines.
+
+  Write extensive, and terse commit messages.  Document a summary of the change you
+  made in each file if there is more than one.
+
+
+routines:
+  dry: >
+    Think a lot about ways to reduce code size: identifing opportunities to improve code-reuse by factoring out common functionality into unified function calls, adhering to software engineering best practices, practicing good code hygiene, and following DRY principles.
+    
+    Do not compromise functionality under any circumstances.
+    Specifically explore easy ways to use higher order functions if possible.
+
+
+  compress: >
+    You are an AI coding agent operating over a set of source files.
+    You must manage contextual load through explicit, structured compression while preserving architectural correctness and cross-file reasoning integrity.
+
+    GENERAL MODEL
+
+    - Treat the codebase as a hierarchy of systems, subsystems, modules, and files.
+    - Every file has multiple valid representations at different abstraction levels.
+    - Compression changes which representation is authoritative, not the structure itself.
+
+    COMPRESSION REPRESENTATIONS
+
+    Each file maintains the following representations simultaneously:
+
+    1. INTENT
+      - Minimal intent-level description.
+      - Used for high-level architectural reasoning.
+
+    2. STRUCTURAL
+      - Interface- and contract-level abstraction.
+      - Must be able to support cross-file reasoning.
+
+    YAML SUMMARY FORMAT
+
+    When summarizing or updating a file, emit a single YAML block at the very top of the file in a multi-line comment in a [FILE SUMMARY][/FILE SUMMARY] block.
+    This YAML defines all compressed representations and acts as the authoritative contract when the file is not expanded.
+
+    [FILE SUMMARY]
+    context:
+      INTENT:
+        purpose: >
+          One-two sentences describing why this file exists and what responsibilities it owns.
+
+      STRUCTURAL:
+        responsibility: >
+          Clear description of what this file controls and enforces.
+        boundaries:
+          owns:
+            - Concepts, data, or behavior this file is responsible for
+          does_not_own:
+            - Responsibilities explicitly handled elsewhere
+        entrypoints:
+          - <function_or_symbol>
+        key_functions:
+          - name: <function_or_method>
+            signature: <optional signature>
+            purpose: >
+              Why this function matters architecturally
+        dependencies:
+          - Files or modules that rely on this file's guarantees
+    [/FILE SUMMARY]
+
+    COMPRESSION RULES
+
+    - INTENT and STRUCTURAL must always be kept accurate relative to the source.
+    - Never infer or invent behavior not justified by code or YAML.
+    - Never delete representations when compressing.
+
+    DEFAULT BEHAVIOR
+
+    - Files not under direct modification should be reasoned about using STRUCTURAL.
+    - INTENT is acceptable only for distant or peripheral files.
+
+    CROSS-FILE REASONING
+
+    - All changes must respect:
+      - STRUCTURAL interfaces and invariants of dependent files
+      - Declared entrypoints and guarantees
+    - If a required detail is missing, request expansion explicitly.
+
+    OUTPUT DISCIPLINE
+
+    - Do not restate YAML unless explicitly updating it.
+    - Do not speculate beyond declared abstractions.
+    - Treat YAML as a binding architectural contract.
+
+    OBJECTIVE
+
+    Maximize architectural correctness under constrained context.
+    Prefer stable abstractions over transient implementation detail.
+
+    GUIDELINES
+
+    Only add to the top of the file, you should only have to output the YAML
+
+
+output_schema:
+  additionalProperties: false
+  properties:
+    edit:
+      additionalProperties: false
+      properties:
+        commit_message:
+          description: The extensive commit message to use for the changes you are making
+          type: string
+        replacements:
+          items:
+            additionalProperties: false
+            properties:
+              filename:
+                description: The file in which to apply the edit
+                type: string
+              new_string:
+                description: The new string to add
+                type: string
+              old_string:
+                description: The old string to replace in the file
+                type: string
+            required:
+            - filename
+            - old_string
+            - new_string
+            type: object
+          type: array
+      required:
+      - commit_message
+      - replacements
+      type: object
+  required:
+  - edit
+  type: object
