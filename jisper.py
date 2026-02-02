@@ -340,7 +340,7 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
             return None
 
         dumped = dump_yaml_block(selected)
-        return f"--- FILENAME: {p.name} ---\n{dumped}" if dumped else None
+        return f"--- FILENAME: {filename} ---\n{dumped}" if dumped else None
 
     joined = "\n\n".join(filter(None, map(one, files or [])))
     return joined.strip() if joined else ""
@@ -474,7 +474,7 @@ def read_and_concatenate_files(file_list):
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
             return None
-        return f"--- FILENAME: {p.name} ---\n{txt}"
+        return f"--- FILENAME: {filename} ---\n{txt}"
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
