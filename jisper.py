@@ -102,6 +102,7 @@ console = Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.yaml"
+DEFAULT_TEMPLATE_PROMPT_FILE = "default_prompt.yaml"
 DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
@@ -345,6 +346,28 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
     joined = "\n\n".join(filter(None, map(one, files or [])))
     return joined.strip() if joined else ""
 
+def script_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+def default_template_prompt_path() -> Path:
+    return script_dir() / DEFAULT_TEMPLATE_PROMPT_FILE
+
+def write_default_prompt_to_cwd() -> int:
+    src = default_template_prompt_path()
+    if not src.exists() or not src.is_file():
+        print(f"[red]Missing template prompt file:[/red] {src}")
+        return 1
+
+    dst = (Path.cwd() / DEFAULT_PROMPT_FILE).resolve()
+    if dst.exists():
+        print(f"[yellow]{DEFAULT_PROMPT_FILE} already exists; refusing to overwrite[/yellow]")
+        return 1
+
+    content = src.read_text(encoding="utf-8")
+    dst.write_text(content, encoding="utf-8")
+    print(f"[green]Wrote {DEFAULT_PROMPT_FILE}[/green]")
+    return 0
+
 @app.callback(invoke_without_command=True)
 def main(
     routine: str | None = typer.Argument(
@@ -358,6 +381,12 @@ def main(
         "--prompt",
         help="Path to prompt/config file (.json/.json5 or .yaml/.yml) (default: prompt.yaml).",
         show_default=True,
+    ),
+    new: bool = typer.Option(
+        False,
+        "--new",
+        help="Copy the bundled default_prompt.yaml (next to jisper.py) into the current directory as prompt.yaml.",
+        show_default=False,
     ),
     undo: bool = typer.Option(
         False,
@@ -373,6 +402,9 @@ def main(
         show_default=False,
     ),
 ) -> None:
+    if new:
+        raise typer.Exit(code=write_default_prompt_to_cwd())
+
     if redo:
         raise typer.Exit(code=redo_last_commit(Path.cwd()))
 
@@ -404,6 +436,615 @@ def main(
     config_obj = load_prompt_file(config)
     in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
     print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
+
+def get_base_config_value(config: dict, key: str, default: str) -> str:
+    return as_non_empty_str(dict_get(config, key)) or default
+
+
+def get_model_code(config: dict) -> str:
+    return get_base_config_value(config, "model", DEFAULT_MODEL)
+
+
+def get_api_key_env_var_name(config: dict) -> str:
+    return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
+
+
+def get_endpoint_url(config: dict) -> str:
+    return get_base_config_value(config, "endpoint", DEFAULT_URL)
+
+
+def get_api_key_from_env(env_var_name: str) -> str | None:
+    return env_non_empty(env_var_name)
+
+
+def is_file_header_line(line: str) -> bool:
+    return line.startswith("---") or line.startswith("+++")
+
+
+def is_hunk_header_line(line: str) -> bool:
+    return line.startswith("@@")
+
+
+def is_diff_meta_line(line: str) -> bool:
+    return is_file_header_line(line)
+
+
+def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
+    if ln is None:
+        return " " * width
+    return f"{ln:>{width}}"
+
+
+def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
+    s = format_fixed_width_line_number(ln, width=width)
+    t = Text(s)
+    if style and ln is not None:
+        t.stylize(style, 0, len(s))
+    return t
+
+def get_nested_str(d: dict, path: list[str]) -> str | None:
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    return as_non_empty_str(cur)
+
+def load_prompt_file(path: Path) -> dict:
+    suffix = (path.suffix or "").lower()
+    if suffix in (".yaml", ".yml"):
+        with path.open("r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        return loaded if isinstance(loaded, dict) else {}
+    return read_json5(path)
+
+
+def read_and_concatenate_files(file_list):
+    def one(filename: str) -> str | None:
+        p = Path(filename)
+        txt = read_text_or_none(p)
+        if txt is None:
+            print(f"[red]Missing input file: {filename}[/red]")
+            return None
+        return f"--- FILENAME: {filename} ---\n{txt}"
+
+    return "\n\n".join(filter(None, map(one, file_list or [])))
+
+def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
+    system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
+    system_prompt = prompt_config["system_prompt"]
+    user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
+    schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
+    model_code = get_model_code(prompt_config)
+
+    includes = resolve_included_files(prompt_config)
+    structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
+    input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+
+    summaries_parts = list(
+        filter(
+            None,
+            [
+                f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
+                f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
+            ],
+        )
+    )
+    summaries_blob = "\n\n".join(summaries_parts)
+    summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
+
+    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}{summaries_chunk}\n\nSOURCE MATERIAL:\n{source_text}"
+
+    payload = {
+        "model": model_code,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt_content},
+        ],
+    }
+
+    if schema:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "structured_response",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+
+    return payload
+
+
+
+def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
+    usage = dict_get(api_json, "usage")
+    prompt_tokens = coerce_int(dict_get(usage, "prompt_tokens"))
+    completion_tokens = coerce_int(dict_get(usage, "completion_tokens"))
+    total_tokens = coerce_int(dict_get(usage, "total_tokens"))
+
+    header_map = lower_keys(response_headers)
+    prompt_tokens = prompt_tokens or coerce_int(header_map.get("x-openai-prompt-tokens"))
+    completion_tokens = completion_tokens or coerce_int(header_map.get("x-openai-completion-tokens"))
+    total_tokens = total_tokens or coerce_int(header_map.get("x-openai-total-tokens"))
+
+    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+        total_tokens = prompt_tokens + completion_tokens
+
+    return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
+
+
+def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
+    conf_prices = config.get("model_prices_usd_per_1m")
+    if isinstance(conf_prices, dict):
+        v = conf_prices.get(model_code)
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            in_p = v[0]
+            out_p = v[1]
+            if isinstance(in_p, (int, float)) and isinstance(out_p, (int, float)):
+                return (float(in_p), float(out_p))
+
+    if model_code in MODEL_PRICES_USD_PER_1M:
+        return MODEL_PRICES_USD_PER_1M[model_code]
+
+    fallback_in = config.get("fallback_input_usd_per_1m")
+    fallback_out = config.get("fallback_output_usd_per_1m")
+    in_p = float(fallback_in) if isinstance(fallback_in, (int, float)) else DEFAULT_FALLBACK_INPUT_USD_PER_1M
+    out_p = float(fallback_out) if isinstance(fallback_out, (int, float)) else DEFAULT_FALLBACK_OUTPUT_USD_PER_1M
+    return (in_p, out_p)
+
+
+def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
+    if prompt_tokens is None and completion_tokens is None:
+        return None
+    pt = float(prompt_tokens or 0)
+    ct = float(completion_tokens or 0)
+    return (pt * in_usd_per_1m + ct * out_usd_per_1m) / 1_000_000.0
+
+
+def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
+    pt = dict_get(usage, "prompt_tokens")
+    ct = dict_get(usage, "completion_tokens")
+    cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
+    return f"[bright_black]${cost:.4f}[/bright_black]"
+
+
+def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
+    config = load_prompt_file(config_path)
+    routine_task = resolve_routine_task(config, routine_name)
+    if as_non_empty_str(routine_name) and not routine_task:
+        routines = get_routines_map(config)
+        available = ", ".join(sorted(map(str, routines.keys())))
+        print(f"[red]Routine not found:[/red] {routine_name}")
+        if available:
+            print(f"[yellow]Available routines:[/yellow] {available}")
+        raise typer.Exit(code=2)
+
+    endpoint_url = get_endpoint_url(config)
+    api_key_env_var = get_api_key_env_var_name(config)
+    api_key = get_api_key_from_env(api_key_env_var)
+
+    includes = resolve_included_files(config)
+    concatenated_text = read_and_concatenate_files(includes["source_files"])
+
+    headers = {
+        "Authorization": f"Bearer {api_key or ''}",
+        "Content-Type": "application/json",
+    }
+
+    payload = build_payload(config, concatenated_text, routine_name)
+
+    with console.status("Waiting for model...", spinner="dots"):
+        response = requests.post(endpoint_url, headers=headers, json=payload)
+
+    api_json = response.json()
+    model_code = get_model_code(config)
+    usage = extract_usage_from_api_response(api_json, dict(response.headers))
+    model_out = json.loads(api_json["choices"][0]["message"]["content"])
+    return (model_out, usage, model_code)
+
+
+def print_no_diff_notice():
+    console.print("[yellow](no diff; content is identical)[/yellow]")
+
+
+def unified_diff_lines(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    fromfile: str = "a",
+    tofile: str = "b",
+) -> list[str]:
+    old_lines = old_text.splitlines(keepends=False)
+    new_lines = new_text.splitlines(keepends=False)
+    return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
+
+
+def guess_syntax_lexer_name(text: str) -> str:
+    sample = "\n".join(text.splitlines()[:50]).lower()
+
+    looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or "@@" in sample
+    if looks_like_diff:
+        return "diff"
+
+    looks_like_json = sample.startswith("{") or sample.startswith("[")
+    if looks_like_json:
+        return "json"
+
+    looks_like_python = "def " in sample or "import " in sample or "class " in sample
+    if looks_like_python:
+        return "python"
+
+    return "text"
+
+
+def guess_syntax_lexer_name_from_filename(filename: str | None) -> str | None:
+    name = as_non_empty_str(filename)
+    if not name:
+        return None
+
+    suffix = Path(name).suffix.lower()
+    ext_map = {
+        ".py": "python",
+        ".json": "json",
+        ".json5": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+        ".diff": "diff",
+        ".patch": "diff",
+        ".toml": "toml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".txt": "text",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".html": "html",
+        ".htm": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".sql": "sql",
+        ".xml": "xml",
+    }
+
+    return ext_map.get(suffix)
+
+
+def syntax_text(body: str, *, lexer_name: str) -> Text:
+    s = Syntax(
+        body,
+        lexer_name,
+        theme="ansi_dark",
+        line_numbers=False,
+        word_wrap=False,
+        code_width=0,
+        indent_guides=False,
+    )
+    return s.highlight(body)
+
+
+def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
+    if not is_hunk_header_line(line):
+        return None
+
+    s = line.strip()
+    if not (s.startswith("@@") and s.endswith("@@")):
+        at = s.find("@@", 2)
+        if at < 0:
+            return None
+        s = s[: at + 2]
+
+    inner = s.strip("@ ")
+    parts = inner.split(" ")
+    parts = list(filter(None, parts))
+    if len(parts) < 2:
+        return None
+
+    old_part = parts[0]
+    new_part = parts[1]
+    if not (old_part.startswith("-") and new_part.startswith("+")):
+        return None
+
+    def parse_range(p: str) -> tuple[int, int] | None:
+        core = p[1:]
+        if "," in core:
+            a, b = core.split(",", 1)
+            a_i = coerce_int(a)
+            b_i = coerce_int(b)
+            return (a_i, b_i) if a_i is not None and b_i is not None else None
+        a_i = coerce_int(core)
+        return (a_i, 1) if a_i is not None else None
+
+    old_r = parse_range(old_part)
+    new_r = parse_range(new_part)
+    if old_r is None or new_r is None:
+        return None
+
+    old_start, old_len = old_r
+    new_start, new_len = new_r
+    return (old_start, old_len, new_start, new_len)
+
+
+def format_combined_diff_lines(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+) -> list[tuple[str, Text]]:
+    diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
+
+    out: list[tuple[str, Text]] = []
+
+    filename_lexer = guess_syntax_lexer_name_from_filename(filename)
+    old_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(old_text)
+    new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
+
+    def push(kind: str, line: Text):
+        out.append((kind, line[:-1]))
+
+    def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
+        return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
+
+    old_ln = 1
+    new_ln = 1
+
+    for line in diff_lines:
+        if is_file_header_line(line) or not line:
+            continue
+
+        if is_hunk_header_line(line):
+            parsed = parse_unified_hunk_header(line)
+            if parsed is not None:
+                old_ln = parsed[0]
+                new_ln = parsed[2]
+            continue
+
+        prefix = line[:1]
+        body = line[1:]
+
+        if prefix == " ":
+            push("context", numbered_line(new_ln, left_style=None, mid="   ", body=body, lexer=new_lexer))
+            old_ln += 1
+            new_ln += 1
+            continue
+
+        if prefix == "-":
+            push("delete", numbered_line(old_ln, left_style="bright_red on dark_red", mid=" - ", body=body, lexer=old_lexer))
+            old_ln += 1
+            continue
+
+        if prefix == "+":
+            push("insert", numbered_line(new_ln, left_style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
+            new_ln += 1
+            continue
+
+        push("header", Text(line))
+
+    return out
+
+
+def print_numbered_combined_diff(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    title: str | None = None,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+):
+    if title:
+        console.print(f"\n{title}")
+
+    lines = format_combined_diff_lines(
+        old_text,
+        new_text,
+        context_lines=context_lines,
+        lexer_name=lexer_name,
+        filename=filename,
+    )
+
+    if not lines:
+        print_no_diff_notice()
+        return
+
+    for _, t in lines:
+        console.print(t)
+
+
+def print_change_preview(filename: str, original: str, updated: str):
+    print_numbered_combined_diff(
+        original,
+        updated,
+        context_lines=2,
+        title=filename,
+        filename=filename,
+    )
+
+
+def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
+    def replace_if(haystack: str, needle: str) -> str | None:
+        return haystack.replace(needle, new_string) if needle and needle in haystack else None
+
+    updated = replace_if(original, old_string)
+    matched_old = old_string
+
+    if updated is None:
+        trimmed_old = old_string.strip()
+        updated = replace_if(original, trimmed_old) if trimmed_old and trimmed_old != old_string else None
+        matched_old = trimmed_old if updated is not None else matched_old
+
+    if updated is None:
+        stripped_original = original.strip()
+        trimmed_old = old_string.strip()
+        if stripped_original and trimmed_old and trimmed_old in stripped_original:
+            leading = original[: len(original) - len(original.lstrip())]
+            trailing = original[len(original.rstrip()) :]
+            replaced_core = stripped_original.replace(trimmed_old, new_string)
+            updated = f"{leading}{replaced_core}{trailing}"
+            matched_old = trimmed_old
+
+    return (updated, matched_old)
+
+
+def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
+    base_dir = base_dir or Path.cwd()
+
+    def get_fields(i: int, r: dict) -> tuple[str | None, str | None, str | None] | None:
+        filename = dict_get(r, "filename")
+        old_string = dict_get(r, "old_string")
+        new_string = dict_get(r, "new_string")
+        if not filename:
+            print(f"[red]Replacement #{i} missing filename; skipping[/red]")
+            return None
+        if old_string is None or new_string is None:
+            print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
+            return None
+        return (filename, old_string, new_string)
+
+    def preview_missing_old(filename: str, old_string: str, new_string: str):
+        print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
+        print_numbered_combined_diff(
+            old_string,
+            new_string,
+            context_lines=2,
+            title="Replacement text (preview)",
+            filename=filename,
+        )
+
+    def can_create_missing_file(old_string: str) -> bool:
+        return as_non_empty_str(old_string) is None
+
+    def apply_one(i_r) -> Path | None:
+        i, r = i_r
+        fields = get_fields(i, r or {})
+        if fields is None:
+            return None
+        filename, old_string, new_string = fields
+
+        target_path = (base_dir / filename).resolve()
+        original = read_text_or_none(target_path)
+        if original is None and target_path.exists() is False:
+            if can_create_missing_file(old_string):
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                print_change_preview(filename, "", new_string)
+                target_path.write_text(new_string, encoding="utf-8")
+                return target_path
+            print(f"[red]Target file not found: {target_path}[/red]")
+            return None
+
+        if original is None:
+            print(f"[red]Target file not found: {target_path}[/red]")
+            return None
+
+        updated, _matched_old = apply_one_replacement(original, old_string, new_string)
+        if updated is None:
+            preview_missing_old(filename, old_string, new_string)
+            return None
+
+        if updated == original:
+            print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
+            return None
+
+        print_change_preview(filename, original, updated)
+        target_path.write_text(updated, encoding="utf-8")
+        return target_path
+
+    return list(filter(None, map(apply_one, enumerate(replacements or []))))
+
+
+def print_model_change_notes(model_output: dict):
+    if not isinstance(model_output, dict):
+        return
+
+    edits = model_output.get("edit") or {}
+    print(edits.get("explanation"))
+
+
+def extract_commit_message(model_output: dict) -> str | None:
+    if not isinstance(model_output, dict):
+        return None
+
+    return get_nested_str(model_output, ["commit_message"]) or get_nested_str(model_output, ["edit", "commit_message"])
+
+
+def repo_from_dir(base_dir: Path) -> git.Repo | None:
+    if (base_dir / ".git").exists():
+        return git.Repo(base_dir)
+
+    current = base_dir
+    while current != current.parent:
+        if (current / ".git").exists():
+            return git.Repo(current)
+        current = current.parent
+
+    return None
+
+
+def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
+    repo_root = Path(repo.working_tree_dir or ".").resolve()
+    relpaths = list(map(lambda p: str(p.resolve().relative_to(repo_root)), changed_files))
+    relpaths = list(filter(lambda s: bool(s and s.strip()), relpaths))
+
+    if not relpaths:
+        return None
+
+    repo.index.add(relpaths)
+    repo.index.commit(message)
+    return message
+
+
+def undo_last_commit(base_dir: Path) -> int:
+    repo = repo_from_dir(base_dir)
+    if repo is None:
+        print("Not a git repository")
+        return 1
+
+    if not repo.head.is_valid():
+        print("No commits to undo")
+        return 1
+
+    if not repo.head.commit.parents:
+        print("No parent commit to reset to")
+        return 1
+
+    repo.git.reset("--hard", "HEAD~1")
+    return 0
+
+
+def redo_last_commit(base_dir: Path) -> int:
+    repo = repo_from_dir(base_dir)
+    if repo is None:
+        print("Not a git repository")
+        return 1
+
+    if not repo.head.is_valid():
+        print("No commits to redo")
+        return 1
+
+    if not (Path(repo.git_dir) / "ORIG_HEAD").exists():
+        print("No ORIG_HEAD found to redo to")
+        return 1
+
+    orig_head = repo.commit("ORIG_HEAD")
+
+    if orig_head.hexsha == repo.head.commit.hexsha:
+        print("Already at the most recent commit")
+        return 0
+
+    repo.git.reset("--hard", orig_head.hexsha)
+    return 0
+
+
+if __name__ == "__main__":
+    app()
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
     return as_non_empty_str(dict_get(config, key)) or default
