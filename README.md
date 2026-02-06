@@ -74,6 +74,24 @@ context:
 [/FILE SUMMARY]
 ```
 
+## System prompt context caching
+
+Jisper can mark the **system prompt** as cacheable context for OpenAI-compatible providers/gateways that support prompt/context caching.
+
+When enabled, Jisper sends the user message as multi-part content and tags the system prompt part with `cache_control` metadata. Providers that do not support caching will ignore the metadata and behave normally.
+
+Config keys:
+
+```yaml
+cache_system_prompt: true
+system_prompt_cache_key: "prompt:v1"  # optional stable key/version to scope caching
+```
+
+Notes:
+
+- Only the system prompt block is marked cacheable; task, summaries, and source material remain uncached.
+- You generally want `system_prompt_cache_key` to change when you change your system prompt semantics.
+
 ## Structured response contract
 
 Jisper expects JSON with this shape:
