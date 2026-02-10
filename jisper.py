@@ -592,7 +592,7 @@ def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, 
     ct = float(completion_tokens or 0)
     return (pt * in_usd_per_1m + ct * out_usd_per_1m) / 1_000_000.0
 
-def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
+def format_token_cost_line(usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
     pt = dict_get(usage, "prompt_tokens")
     ct = dict_get(usage, "completion_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
@@ -617,11 +617,17 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             result = subprocess.run(
                 build_cmd,
                 shell=True,
-                capture_output=False,  # Don't capture so colors are preserved
+                capture_output=True,
                 text=True,
                 cwd=Path.cwd()
             )
             
+            # Print the output to user (preserving colors)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+                
             # If build failed, add error to config
             if result.returncode != 0:
                 error_msg = f"Build failed with exit code {result.returncode}"
@@ -680,8 +686,7 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     model_code = get_model_code(config)
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
     in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config, model_code)
-    cost_line = format_token_cost_line(model_code, usage, in_usd_per_1m, out_usd_per_1m)
-    print(cost_line)
+    
     choices = api_json.get("choices")
     if choices:
         return (json.loads(choices[0]["message"]["content"]), usage, model_code)
