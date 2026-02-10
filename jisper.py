@@ -376,7 +376,7 @@ def main(
         help="Optional routine name to use from prompt config's `routines` mapping (overrides default task).",
         show_default=False,
     ),
-    config: Path = typer.Option(
+    config_path: Path = typer.Option(
         DEFAULT_PROMPT_FILE,
         "-p",
         "--prompt",
@@ -412,10 +412,10 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response, usage, model_code = run(config, routine)
-    print_model_change_notes(response or {})
+    response, usage, model_code = run(config_path, routine)
+    print_model_change_notes(response)
 
-    edits = (response or {}).get("edit", {})
+    edits = response["edit"]
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
 
@@ -536,18 +536,13 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     }
 
     if schema:
-        is_open_router = "openrouter.ai" in endpoint_url
-        if is_open_router:
-            payload["response_format"] = {"type": "json_object", "schema": schema}
-        else:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_response",
-                    "strict": True,
-                    "schema": schema,
-                },
-            }
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "strict": True,
+                "schema": schema,
+            },
+        }
     return payload
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
@@ -611,6 +606,8 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
     endpoint_url = get_endpoint_url(config)
     api_key_env_var = get_api_key_env_var_name(config)
+    if "openrouter.ai" in endpoint_url and api_key_env_var == DEFAULT_API_KEY_ENV_VAR:
+        api_key_env_var = "OPENROUTER_API_KEY"
     api_key = get_api_key_from_env(api_key_env_var)
 
     includes = resolve_included_files(config)
@@ -629,6 +626,21 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        if response.status_code == 401:
+            print("[red]API Error: Authentication failed (401 Unauthorized)[/red]")
+            print("\n[yellow]Please check the following:[/yellow]")
+            print(f"1. The API key environment variable is set correctly: [cyan]{api_key_env_var}[/cyan]")
+            print(f"2. The API key itself is valid.")
+            print(f"3. The endpoint URL is correct: [cyan]{endpoint_url}[/cyan]")
+        else:
+            print(f"[red]API Error: Received status code {response.status_code}[/red]")
+            try:
+                print(response.json())
+            except Exception:
+                print(response.text)
+        raise typer.Exit(code=1)
 
     api_json = response.json()
     model_code = get_model_code(config)
@@ -916,16 +928,17 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
     def can_create_missing_file(old_string: str) -> bool:
         return as_non_empty_str(old_string) is None
 
-    def apply_one(i_r) -> Path | None:
-        i, r = i_r
-        fields = get_fields(i, r or {})
+    def apply_one_file(i: int, r: dict) -> Path | None:
+        fields = get_fields(i, r)
         if fields is None:
             return None
         filename, old_string, new_string = fields
 
         target_path = (base_dir / filename).resolve()
         original = read_text_or_none(target_path)
-        if original is None and target_path.exists() is False:
+        
+        # Handle missing file creation
+        if original is None and not target_path.exists():
             if can_create_missing_file(old_string):
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 print_change_preview(filename, "", new_string)
@@ -933,11 +946,12 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
                 return target_path
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
-
+        
         if original is None:
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
+        # Apply replacement logic
         updated, _matched_old = apply_one_replacement(original, old_string, new_string)
         if updated is None:
             preview_missing_old(filename, old_string, new_string)
@@ -951,7 +965,8 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
-    return list(filter(None, map(apply_one, enumerate(replacements or []))))
+    # Use enumerate with unpacking for clarity
+    return [result for result in (apply_one_file(i, r) for i, r in enumerate(replacements or [])) if result is not None]
 
 def print_model_change_notes(model_output: dict):
     if not isinstance(model_output, dict):
