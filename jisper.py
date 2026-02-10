@@ -154,7 +154,7 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (1.75, 14.0),
     "gpt-5-mini": (0.25, 2.0),
     "gemini-2.5-pro": (4.0, 18.0),
-    "qwen/qwen3-coder": (0.22, 1.0),
+    "qwen/qwen3-coder:exacto": (0.22, 1.0),
 }
 
 def as_non_empty_str(v) -> str | None:
@@ -661,7 +661,7 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     if provider in ("openai", "openrouter"):
         return run_openai_compatible(config, concatenated_text, routine_name)
     elif provider == "google":
-        return run_google_genai(config, concatenated.text, routine_name)
+        return run_google_genai(config, concatenated_text, routine_name)
     else:
         print(f"Unknown provider: {provider}. Supported providers: openai, google, openrouter")
         raise typer.Exit(code=1)
@@ -757,48 +757,6 @@ def run_openai_compatible(config: dict, concatenated_text: str, routine_name: st
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
     model_out = json.loads(api_json["choices"][0]["message"]["content"])
     return model_out, usage, model_code
-
-
-
-def run_openrouter(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
-    endpoint_url = config.get("endpoint", "https://openrouter.ai/api/v1/chat/completions")
-    api_key_env_var = config.get("api_key_env_var", "OPENROUTER_API_KEY")
-    api_key = get_api_key_from_env(api_key_env_var)
-
-    if not api_key:
-        print(f"API key not found in environment variable: {api_key_env_var}")
-        raise typer.Exit(code=1)
-
-    http_referer = config.get("http_referer", "http://localhost:3000")
-    x_title = config.get("x_title", "Jisper")
-
-    headers = {
-        "Authorization": f"Bearer {api_key or ''}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": http_referer,
-        "X-Title": x_title,
-    }
-
-    payload = build_openai_payload(config, concatenated_text, routine_name)
-
-    extra_body = config.get("extra_body")
-    if isinstance(extra_body, dict):
-        payload.update(extra_body)
-
-    print("Waiting for model...")
-    response = requests.post(endpoint_url, headers=headers, json=payload)
-
-    if response.status_code != 200:
-        print(f"Error from OpenRouter API: {response.status_code}")
-        print(response.text)
-        raise typer.Exit(code=1)
-
-    api_json = response.json()
-    model_code = get_model_code(config)
-    usage = extract_usage_from_api_response(api_json, dict(response.headers))
-    model_out = json.loads(api_json["choices"][0]["message"]["content"])
-    return model_out, usage, model_code
-
 
 
 def run_google_genai(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
