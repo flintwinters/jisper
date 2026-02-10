@@ -47,10 +47,10 @@ context:
         signature: build_file_summaries_section(files: list[str], *, intent_only: bool) -> str
         purpose: >
           Extracts and emits compact YAML summaries derived from [FILE SUMMARY] blocks to reduce context.
-      - name: build_payload
-        signature: build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None)
+      - name: build_openai_payload
+        signature: build_openai_payload(prompt_config: dict, source_text: str, routine_name: str | None = None)
         purpose: >
-          Constructs the chat completions payload including system/user messages and optional JSON schema.
+          Constructs the chat completions payload including system/user messages and optional JSON schema for OpenAI.
       - name: run
         signature: run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]
         purpose: >
@@ -91,6 +91,11 @@ import difflib
 from pathlib import Path
 import git
 import typer
+
+try:
+    import google.genai as genai
+except ImportError:
+    genai = None
 
 app = typer.Typer(add_completion=False)
 
@@ -146,8 +151,9 @@ DEFAULT_OUTPUT_SCHEMA = {
 }
 
 MODEL_PRICES_USD_PER_1M = {
-    "gpt-5.2": (5.0, 15.0),
-    "gpt-5-mini": (1.0, 3.0),
+    "gpt-5.2": (1.75, 14.0),
+    "gpt-5-mini": (0.25, 2.0),
+    "gemini-2.5-pro": (4.0, 18.0),
 }
 
 def as_non_empty_str(v) -> str | None:
@@ -495,7 +501,7 @@ def user_message_content_parts(system_prompt: str, prompt_content: str, cache_co
     }
     return [cacheable_system, rest]
 
-def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
+def build_openai_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
@@ -541,6 +547,46 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
         }
 
     return payload
+
+def build_google_payload_prompt(prompt_config: dict, source_text: str, routine_name: str | None = None) -> str:
+    system_prompt = prompt_config["system_prompt"]
+    user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
+    schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
+
+    includes = resolve_included_files(prompt_config)
+    structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
+    input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+
+    summaries_parts = list(
+        filter(
+            None,
+            [
+                f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
+                f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
+            ],
+        )
+    )
+    summaries_blob = "\n\n".join(summaries_parts)
+    summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
+
+    schema_str = json.dumps(schema, indent=2)
+
+    prompt = f"""{system_prompt}
+
+TASK:
+{user_task}
+
+Please provide your response in a JSON format that strictly adheres to the following schema:
+```json
+{schema_str}
+```
+
+{summaries_chunk}
+
+SOURCE MATERIAL:
+{source_text}
+"""
+    return prompt
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
     usage = dict_get(api_json, "usage")
@@ -601,19 +647,32 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             print(f"Available routines: {available}")
         raise typer.Exit(code=2)
 
-    endpoint_url = get_endpoint_url(config)
-    api_key_env_var = get_api_key_env_var_name(config)
-    api_key = get_api_key_from_env(api_key_env_var)
+    provider = config.get("provider", "openai")
 
     includes = resolve_included_files(config)
     concatenated_text = read_and_concatenate_files(includes["source_files"])
+
+    if provider == "openai":
+        return run_openai(config, concatenated_text, routine_name)
+    elif provider == "google":
+        return run_google_genai(config, concatenated_text, routine_name)
+    elif provider == "openrouter":
+        return run_openrouter(config, concatenated_text, routine_name)
+    else:
+        print(f"Unknown provider: {provider}. Supported providers: openai, google, openrouter")
+        raise typer.Exit(code=1)
+
+def run_openai(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
+    endpoint_url = get_endpoint_url(config)
+    api_key_env_var = get_api_key_env_var_name(config)
+    api_key = get_api_key_from_env(api_key_env_var)
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
 
-    payload = build_payload(config, concatenated_text, routine_name)
+    payload = build_openai_payload(config, concatenated_text, routine_name)
     print("Waiting for model...")
     response = requests.post(endpoint_url, headers=headers, json=payload)
 
@@ -622,6 +681,104 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
     model_out = json.loads(api_json["choices"][0]["message"]["content"])
     return (model_out, usage, model_code)
+
+
+def run_openrouter(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
+    endpoint_url = config.get("endpoint", "https://openrouter.ai/api/v1/chat/completions")
+    api_key_env_var = config.get("api_key_env_var", "OPENROUTER_API_KEY")
+    api_key = get_api_key_from_env(api_key_env_var)
+
+    if not api_key:
+        print(f"API key not found in environment variable: {api_key_env_var}")
+        raise typer.Exit(code=1)
+
+    http_referer = config.get("http_referer", "http://localhost:3000")
+    x_title = config.get("x_title", "Jisper")
+
+    headers = {
+        "Authorization": f"Bearer {api_key or ''}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": http_referer,
+        "X-Title": x_title,
+    }
+
+    payload = build_openai_payload(config, concatenated_text, routine_name)
+
+    extra_body = config.get("extra_body")
+    if isinstance(extra_body, dict):
+        payload.update(extra_body)
+
+    print("Waiting for model...")
+    response = requests.post(endpoint_url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        print(f"Error from OpenRouter API: {response.status_code}")
+        print(response.text)
+        raise typer.Exit(code=1)
+
+    api_json = response.json()
+    model_code = get_model_code(config)
+    usage = extract_usage_from_api_response(api_json, dict(response.headers))
+    model_out = json.loads(api_json["choices"][0]["message"]["content"])
+    return model_out, usage, model_code
+
+
+
+def run_google_genai(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
+    if genai is None:
+        print("google.genai package not installed. Please install it with 'pip install google-generativeai'")
+        raise typer.Exit(code=1)
+
+    api_key_env_var = config.get("api_key_env_var", "GEMINI_API_KEY")
+    api_key = get_api_key_from_env(api_key_env_var)
+    if not api_key:
+        print(f"API key not found in environment variable: {api_key_env_var}")
+        raise typer.Exit(code=1)
+
+    genai.configure(api_key=api_key)
+
+    model_code = get_model_code(config)
+    model = genai.GenerativeModel(model_code)
+
+    payload_prompt = build_google_payload_prompt(config, concatenated_text, routine_name)
+
+    schema = config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
+    generation_config = {
+        "temperature": 0.2,
+        "top_p": 1,
+        "top_k": 32,
+        "max_output_tokens": 8192,
+    }
+    if schema:
+        generation_config["response_mime_type"] = "application/json"
+
+    print("Waiting for model...")
+    response = model.generate_content(
+        payload_prompt,
+        generation_config=generation_config
+    )
+
+    if not response.candidates:
+        if response.prompt_feedback.block_reason:
+            print(f"Request was blocked: {response.prompt_feedback.block_reason}")
+            if response.prompt_feedback.safety_ratings:
+                for rating in response.prompt_feedback.safety_ratings:
+                    print(rating)
+        else:
+            print("Request failed for an unknown reason.")
+        raise typer.Exit(code=1)
+
+    response_text = response.text
+    model_out = json.loads(response_text)
+
+    usage = {
+        "prompt_tokens": response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else None,
+        "completion_tokens": response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else None,
+        "total_tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
+    }
+
+    return model_out, usage, model_code
+
 
 def unified_diff_lines(
     old_text: str,
