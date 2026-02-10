@@ -653,35 +653,60 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     includes = resolve_included_files(config)
     concatenated_text = read_and_concatenate_files(includes["source_files"])
 
-    if provider == "openai":
-        return run_openai(config, concatenated_text, routine_name)
+    if provider in ("openai", "openrouter"):
+        return run_openai_compatible(config, concatenated_text, routine_name)
     elif provider == "google":
         return run_google_genai(config, concatenated_text, routine_name)
-    elif provider == "openrouter":
-        return run_openrouter(config, concatenated_text, routine_name)
     else:
         print(f"Unknown provider: {provider}. Supported providers: openai, google, openrouter")
         raise typer.Exit(code=1)
 
-def run_openai(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
-    endpoint_url = get_endpoint_url(config)
-    api_key_env_var = get_api_key_env_var_name(config)
+def run_openai_compatible(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
+    provider = config.get("provider", "openai")
+    
+    default_endpoint = "https://api.openai.com/v1/chat/completions"
+    default_api_key_env_var = "OPENAI_API_KEY"
+    if provider == "openrouter":
+        default_endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        default_api_key_env_var = "OPENROUTER_API_KEY"
+
+    endpoint_url = config.get("endpoint", default_endpoint)
+    api_key_env_var = config.get("api_key_env_var", default_api_key_env_var)
     api_key = get_api_key_from_env(api_key_env_var)
+
+    if not api_key:
+        print(f"API key not found in environment variable: {api_key_env_var}")
+        raise typer.Exit(code=1)
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
 
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = config.get("http_referer", "http://localhost:3000")
+        headers["X-Title"] = config.get("x_title", "Jisper")
+
     payload = build_openai_payload(config, concatenated_text, routine_name)
+
+    extra_body = config.get("extra_body")
+    if isinstance(extra_body, dict):
+        payload.update(extra_body)
+
     print("Waiting for model...")
     response = requests.post(endpoint_url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        print(f"Error from API: {response.status_code}")
+        print(response.text)
+        raise typer.Exit(code=1)
 
     api_json = response.json()
     model_code = get_model_code(config)
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
     model_out = json.loads(api_json["choices"][0]["message"]["content"])
-    return (model_out, usage, model_code)
+    return model_out, usage, model_code
+
 
 
 def run_openrouter(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:

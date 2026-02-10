@@ -33,9 +33,24 @@ full_files:
   - jisper.py
 
 model: gpt-5.2
+provider: openai # 'openai' (default), 'google', or 'openrouter'
 endpoint: https://api.openai.com/v1/chat/completions
 api_key_env_var: OPENAI_API_KEY
 ```
+
+### LLM Provider
+
+You can specify the LLM provider using the `provider` key.
+
+- `openai` / `openrouter`: (Default `openai`) Uses an OpenAI-compatible endpoint.
+  - `endpoint`: The chat completions endpoint URL.
+  - `api_key_env_var`: Environment variable for the API key.
+  - For OpenRouter, you may need to set `http_referer` and `x_title`.
+
+- `google`: Uses the Google GenAI API (`google-generativeai` package).
+  - `model`: The model name (e.g., `gemini-2.5-pro`).
+  - `api_key_env_var`: Environment variable for the API key (defaults to `GEMINI_API_KEY`).
+  - The `endpoint` key is not used for the `google` provider.
 
 ### Routines (task overrides)
 
