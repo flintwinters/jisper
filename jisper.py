@@ -91,8 +91,6 @@ import difflib
 from pathlib import Path
 import git
 import typer
-import subprocess
-import sys
 
 from rich import print
 from rich.console import Console
@@ -159,6 +157,8 @@ DEFAULT_OUTPUT_SCHEMA = {
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
+    "qwen/qwen3-coder:exacto": (.22, 1.8)
+
 }
 
 def as_non_empty_str(v) -> str | None:
@@ -493,25 +493,6 @@ def load_prompt_file(path: Path) -> dict:
         return loaded if isinstance(loaded, dict) else {}
     return read_json5(path)
 
-def run_build_command(config: dict) -> dict:
-    build_cmd = config.get("build")
-    if not build_cmd:
-        return config
-    
-    try:
-        result = subprocess.run(
-            build_cmd,
-            shell=True,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0:
-            config["error"] = result.stderr or f"Build command failed with exit code {result.returncode}"
-    except Exception as e:
-        config["error"] = str(e)
-    
-    return config
-
 def read_and_concatenate_files(file_list):
     def one(filename: str) -> str | None:
         p = Path(filename)
@@ -616,7 +597,6 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
-    config = run_build_command(config)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
         routines = get_routines_map(config)
