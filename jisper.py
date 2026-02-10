@@ -509,6 +509,10 @@ def build_openai_payload(prompt_config: dict, source_text: str, routine_name: st
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
+    if schema:
+        schema_str = json.dumps(schema)
+        system_instruction = f"{system_instruction} Output ONLY valid JSON matching this schema: {schema_str}"
+
     includes = resolve_included_files(prompt_config)
     structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
     input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
@@ -538,6 +542,7 @@ def build_openai_payload(prompt_config: dict, source_text: str, routine_name: st
     }
 
     if schema:
+        payload["response_format"] = {"type": "json_object"}
         payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
