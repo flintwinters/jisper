@@ -607,6 +607,40 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             print(f"[yellow]Available routines:[/yellow] {available}")
         raise typer.Exit(code=2)
 
+    # Execute build command if present
+    build_cmd = config.get('build')
+    if build_cmd:
+        try:
+            # Run the build command and capture output
+            result = subprocess.run(
+                build_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=Path.cwd()
+            )
+            
+            # Print the output to user (preserving colors)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+                
+            # If build failed, add error to config
+            if result.returncode != 0:
+                error_msg = f"Build failed with exit code {result.returncode}"
+                if 'error' not in config:
+                    config['error'] = error_msg
+                print(f"[red]{error_msg}[/red]")
+                raise typer.Exit(code=result.returncode)
+                
+        except Exception as e:
+            error_msg = f"Build execution failed: {str(e)}"
+            if 'error' not in config:
+                config['error'] = error_msg
+            print(f"[red]{error_msg}[/red]")
+            raise typer.Exit(code=1)
+
     endpoint_url = get_endpoint_url(config)
     api_key_env_var = get_api_key_env_var_name(config)
     if "openrouter.ai" in endpoint_url and api_key_env_var == DEFAULT_API_KEY_ENV_VAR:
