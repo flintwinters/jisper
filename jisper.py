@@ -88,17 +88,18 @@ import os
 import json5 as json
 import yaml
 import difflib
-import subprocess
-import sys
 from pathlib import Path
 import git
 import typer
 
-try:
-    import google.genai as genai
-except ImportError:
-    genai = None
+from rich import print
+from rich.console import Console
+from rich.text import Text
+from rich.syntax import Syntax
 
+
+# soft_wrap=True is VERY IMPORTANT for ergonomics.  DO NOT CHANGE
+console = Console(soft_wrap=True, markup=False, highlight=False, no_color=False)
 app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.yaml"
@@ -154,10 +155,8 @@ DEFAULT_OUTPUT_SCHEMA = {
 
 # (input, output)
 MODEL_PRICES_USD_PER_1M = {
-    "gpt-5.2": (1.75, 14.0),
-    "gpt-5-mini": (0.25, 2.0),
-    "gemini-2.5-pro": (4.0, 18.0),
-    "qwen/qwen3-coder:exacto": (0.22, 1.0),
+    "gpt-5.2": (5.0, 15.0),
+    "gpt-5-mini": (1.0, 3.0),
 }
 
 def as_non_empty_str(v) -> str | None:
@@ -331,7 +330,7 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
         p = Path(filename)
         txt = read_text_or_none(p)
         if txt is None:
-            print(f"Missing input file: {filename}")
+            print(f"[red]Missing input file: {filename}[/red]")
             return None
 
         summary = extract_file_summary_yaml(txt)
@@ -357,17 +356,17 @@ def default_template_prompt_path() -> Path:
 def write_default_prompt_to_cwd() -> int:
     src = default_template_prompt_path()
     if not src.exists() or not src.is_file():
-        print(f"Missing template prompt file: {src}")
+        print(f"[red]Missing template prompt file:[/red] {src}")
         return 1
 
     dst = (Path.cwd() / DEFAULT_PROMPT_FILE).resolve()
     if dst.exists():
-        print(f"{DEFAULT_PROMPT_FILE} already exists; refusing to overwrite")
+        print(f"[yellow]{DEFAULT_PROMPT_FILE} already exists; refusing to overwrite[/yellow]")
         return 1
 
     content = src.read_text(encoding="utf-8")
     dst.write_text(content, encoding="utf-8")
-    print(f"Wrote {DEFAULT_PROMPT_FILE}")
+    print(f"[green]Wrote {DEFAULT_PROMPT_FILE}[/green]")
     return 0
 
 @app.callback(invoke_without_command=True)
@@ -416,46 +415,6 @@ def main(
     response, usage, model_code = run(config, routine)
     print_model_change_notes(response or {})
 
-    # Handle build command if present
-    config_obj = load_prompt_file(config)
-    build_cmd = config_obj.get('build')
-    if build_cmd:
-        print(f"\nExecuting build command: {build_cmd}")
-        try:
-            # Use subprocess.Popen to stream output in real-time with color preservation
-            process = subprocess.Popen(
-                build_cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True,
-                bufsize=1
-            )
-            
-            output_lines = []
-            if process.stdout:
-                for line in process.stdout:
-                    print(line, end='')
-                    output_lines.append(line)
-            
-            return_code = process.wait()
-            output = ''.join(output_lines)
-            
-            if return_code != 0:
-                # Add error to config and write back to file
-                config_obj['error'] = output
-                if config.suffix in ('.yaml', '.yml'):
-                    with config.open('w', encoding='utf-8') as f:
-                        yaml.safe_dump(config_obj, f, sort_keys=False)
-                else:
-                    # For JSON5, we'll need to rewrite the file
-                    config.write_text(json.dumps(config_obj, indent=2), encoding='utf-8')
-                print(f"\nBuild failed with exit code {return_code}. Error added to config file.")
-                sys.exit(return_code)
-        except Exception as e:
-            print(f"\nFailed to execute build command: {e}")
-            sys.exit(1)
-
     edits = (response or {}).get("edit", {})
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
@@ -466,18 +425,14 @@ def main(
 
     repo = repo_from_dir(Path.cwd())
     if repo is None:
-        print("Not a git repository; skipping commit")
+        print("[yellow]Not a git repository; skipping commit[/yellow]")
 
     if repo is not None and changed_files:
         committed_message = stage_and_commit(repo, changed_files, commit_message)
         if committed_message:
-            print(f"\nCommitted changes: {committed_message}")
+            print(f"\n[green]Committed changes:[/green] {committed_message}")
     if repo is not None and not changed_files:
-        print("No files changed; skipping commit")
-
-    config_obj = load_prompt_file(config)
-    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config_obj, model_code)
-    print(format_token_cost_line(model_code, usage or {}, in_usd_per_1m, out_usd_per_1m))
+        print("[yellow]No files changed; skipping commit[/yellow]")
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
     return as_non_empty_str(dict_get(config, key)) or default
@@ -493,6 +448,32 @@ def get_endpoint_url(config: dict) -> str:
 
 def get_api_key_from_env(env_var_name: str) -> str | None:
     return env_non_empty(env_var_name)
+
+
+def is_file_header_line(line: str) -> bool:
+    return line.startswith("---") or line.startswith("+++")
+
+
+def is_hunk_header_line(line: str) -> bool:
+    return line.startswith(" @@")
+
+
+def is_diff_meta_line(line: str) -> bool:
+    return is_file_header_line(line)
+
+
+def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
+    if ln is None:
+        return " " * width
+    return f"{ln:>{width}}"
+
+
+def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
+    s = format_fixed_width_line_number(ln, width=width)
+    t = Text(s)
+    if style and ln is not None:
+        t.stylize(style, 0, len(s))
+    return t
 
 def get_nested_str(d: dict, path: list[str]) -> str | None:
     cur = d
@@ -515,46 +496,18 @@ def read_and_concatenate_files(file_list):
         p = Path(filename)
         txt = read_text_or_none(p)
         if txt is None:
-            print(f"Missing input file: {filename}")
+            print(f"[red]Missing input file: {filename}[/red]")
             return None
         return f"--- FILENAME: {filename} ---\n{txt}"
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
-def cache_control_for_system_prompt(prompt_config: dict) -> dict | None:
-    enabled = dict_get(prompt_config, "cache_system_prompt")
-    enabled = True if enabled is None else bool(enabled)
-    if not enabled:
-        return None
-
-    key = as_non_empty_str(dict_get(prompt_config, "system_prompt_cache_key"))
-    base = {"type": "ephemeral"}
-    return {"cache_control": dict(base, **({"key": key} if key else {}))}
-
-def user_message_content_parts(system_prompt: str, prompt_content: str, cache_control: dict | None):
-    cacheable_system = {
-        "type": "text",
-        "text": f"SYSTEM PROMPT:\n{system_prompt}\n",
-    }
-    if cache_control:
-        cacheable_system = dict(cacheable_system, **cache_control)
-
-    rest = {
-        "type": "text",
-        "text": prompt_content,
-    }
-    return [cacheable_system, rest]
-
-def build_openai_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
+def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
-
-    if schema:
-        schema_str = json.dumps(schema)
-        system_instruction = f"{system_instruction} Output ONLY valid JSON matching this schema: {schema_str}"
 
     includes = resolve_included_files(prompt_config)
     structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
@@ -572,20 +525,17 @@ def build_openai_payload(prompt_config: dict, source_text: str, routine_name: st
     summaries_blob = "\n\n".join(summaries_parts)
     summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
 
-    rest_prompt_content = f"TASK:\n{user_task}{summaries_chunk}\n\nSOURCE MATERIAL:\n{source_text}"
-    cache_control = cache_control_for_system_prompt(prompt_config)
-    user_content = user_message_content_parts(system_prompt, rest_prompt_content, cache_control)
+    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}{summaries_chunk}\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
         "model": model_code,
         "messages": [
             {"role": "system", "content": system_instruction},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": prompt_content},
         ],
     }
 
     if schema:
-        payload["response_format"] = {"type": "json_object"}
         payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
@@ -596,46 +546,6 @@ def build_openai_payload(prompt_config: dict, source_text: str, routine_name: st
         }
 
     return payload
-
-def build_google_payload_prompt(prompt_config: dict, source_text: str, routine_name: str | None = None) -> str:
-    system_prompt = prompt_config["system_prompt"]
-    user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
-    schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
-
-    includes = resolve_included_files(prompt_config)
-    structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
-    input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
-
-    summaries_parts = list(
-        filter(
-            None,
-            [
-                f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
-                f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
-            ],
-        )
-    )
-    summaries_blob = "\n\n".join(summaries_parts)
-    summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
-
-    schema_str = json.dumps(schema, indent=2)
-
-    prompt = f"""{system_prompt}
-
-TASK:
-{user_task}
-
-Please provide your response in a JSON format that strictly adheres to the following schema:
-```json
-{schema_str}
-```
-
-{summaries_chunk}
-
-SOURCE MATERIAL:
-{source_text}
-"""
-    return prompt
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
     usage = dict_get(api_json, "usage")
@@ -683,7 +593,7 @@ def format_token_cost_line(model_code: str, usage: dict, in_usd_per_1m: float, o
     pt = dict_get(usage, "prompt_tokens")
     ct = dict_get(usage, "completion_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
-    return f"${cost:.4f}"
+    return f"[bright_black]${cost:.4f}[/bright_black]"
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
@@ -691,172 +601,40 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     if as_non_empty_str(routine_name) and not routine_task:
         routines = get_routines_map(config)
         available = ", ".join(sorted(map(str, routines.keys())))
-        print(f"Routine not found: {routine_name}")
+        print(f"[red]Routine not found:[/red] {routine_name}")
         if available:
-            print(f"Available routines: {available}")
+            print(f"[yellow]Available routines:[/yellow] {available}")
         raise typer.Exit(code=2)
 
-    provider = config.get("provider", "openai")
+    endpoint_url = get_endpoint_url(config)
+    api_key_env_var = get_api_key_env_var_name(config)
+    api_key = get_api_key_from_env(api_key_env_var)
 
     includes = resolve_included_files(config)
     concatenated_text = read_and_concatenate_files(includes["source_files"])
 
-    if provider in ("openai", "openrouter"):
-        return run_openai_compatible(config, concatenated_text, routine_name)
-    elif provider == "google":
-        return run_google_genai(config, concatenated_text, routine_name)
-    else:
-        print(f"Unknown provider: {provider}. Supported providers: openai, google, openrouter")
-        raise typer.Exit(code=1)
-
-def run_openai_compatible(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
-    provider = config.get("provider", "openai")
-    
-    default_endpoint = "https://api.openai.com/v1/chat/completions"
-    default_api_key_env_var = "OPENAI_API_KEY"
-    if provider == "openrouter":
-        default_endpoint = "https://openrouter.ai/api/v1/chat/completions"
-        default_api_key_env_var = "OPENROUTER_API_KEY"
-
-    endpoint_url = config.get("endpoint", default_endpoint)
-    api_key_env_var = config.get("api_key_env_var", default_api_key_env_var)
-    api_key = get_api_key_from_env(api_key_env_var)
-
-    if not api_key:
-        print(f"API key not found in environment variable: {api_key_env_var}")
-        raise typer.Exit(code=1)
-
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
 
-    if provider == "openrouter":
-        headers["HTTP-Referer"] = config.get("http_referer", "http://localhost:3000")
-        headers["X-Title"] = config.get("x_title", "Jisper")
+    payload = build_payload(config, concatenated_text, routine_name)
 
-    payload = build_openai_payload(config, concatenated_text, routine_name)
-
-    extra_body = config.get("extra_body")
-    if isinstance(extra_body, dict):
-        payload.update(extra_body)
-
-    print("Waiting for model...")
-    response = requests.post(endpoint_url, headers=headers, json=payload)
-
-    if response.status_code != 200:
-        print(f"Error from API: {response.status_code}")
-        print(response.text)
-        raise typer.Exit(code=1)
+    with console.status("Waiting for model...", spinner="dots"):
+        response = requests.post(endpoint_url, headers=headers, json=payload)
 
     api_json = response.json()
     model_code = get_model_code(config)
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
-    model_out = json.loads(api_json["choices"][0]["message"]["content"])
-    return model_out, usage, model_code
+    choices = api_json.get("choices")
+    if choices:
+        return (json.loads(choices[0]["message"]["content"]), usage, model_code)
+    print("[red]API formatting error[/red]")
+    print(api_json)
+    exit(1)
 
-def run_openai_compatible(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
-    provider = config.get("provider", "openai")
-    
-    default_endpoint = "https://api.openai.com/v1/chat/completions"
-    default_api_key_env_var = "OPENAI_API_KEY"
-    if provider == "openrouter":
-        default_endpoint = "https://openrouter.ai/api/v1/chat/completions"
-        default_api_key_env_var = "OPENROUTER_API_KEY"
-
-    endpoint_url = config.get("endpoint", default_endpoint)
-    api_key_env_var = config.get("api_key_env_var", default_api_key_env_var)
-    api_key = get_api_key_from_env(api_key_env_var)
-
-    if not api_key:
-        print(f"API key not found in environment variable: {api_key_env_var}")
-        raise typer.Exit(code=1)
-
-    headers = {
-        "Authorization": f"Bearer {api_key or ''}",
-        "Content-Type": "application/json",
-    }
-
-    if provider == "openrouter":
-        headers["HTTP-Referer"] = config.get("http_referer", "http://localhost:3000")
-        headers["X-Title"] = config.get("x_title", "Jisper")
-
-    payload = build_openai_payload(config, concatenated_text, routine_name)
-
-    extra_body = config.get("extra_body")
-    if isinstance(extra_body, dict):
-        payload.update(extra_body)
-
-    print("Waiting for model...")
-    response = requests.post(endpoint_url, headers=headers, json=payload)
-
-    if response.status_code != 200:
-        print(f"Error from API: {response.status_code}")
-        print(response.text)
-        raise typer.Exit(code=1)
-
-    api_json = response.json()
-    model_code = get_model_code(config)
-    usage = extract_usage_from_api_response(api_json, dict(response.headers))
-    model_out = json.loads(api_json["choices"][0]["message"]["content"])
-    return model_out, usage, model_code
-
-
-def run_google_genai(config: dict, concatenated_text: str, routine_name: str | None) -> tuple[dict, dict, str]:
-    if genai is None:
-        print("google.genai package not installed. Please install it with 'pip install google-generativeai'")
-        raise typer.Exit(code=1)
-
-    api_key_env_var = config.get("api_key_env_var", "GEMINI_API_KEY")
-    api_key = get_api_key_from_env(api_key_env_var)
-    if not api_key:
-        print(f"API key not found in environment variable: {api_key_env_var}")
-        raise typer.Exit(code=1)
-
-    genai.configure(api_key=api_key)
-
-    model_code = get_model_code(config)
-    model = genai.GenerativeModel(model_code)
-
-    payload_prompt = build_google_payload_prompt(config, concatenated_text, routine_name)
-
-    schema = config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
-    generation_config = {
-        "temperature": 0.2,
-        "top_p": 1,
-        "top_k": 32,
-        "max_output_tokens": 8192,
-    }
-    if schema:
-        generation_config["response_mime_type"] = "application/json"
-        generation_config["response_schema"] = schema
-
-    print("Waiting for model...")
-    response = model.generate_content(
-        payload_prompt,
-        generation_config=generation_config
-    )
-
-    if not response.candidates:
-        if response.prompt_feedback.block_reason:
-            print(f"Request was blocked: {response.prompt_feedback.block_reason}")
-            if response.prompt_feedback.safety_ratings:
-                for rating in response.prompt_feedback.safety_ratings:
-                    print(rating)
-        else:
-            print("Request failed for an unknown reason.")
-        raise typer.Exit(code=1)
-
-    response_text = response.text
-    model_out = json.loads(response_text)
-
-    usage = {
-        "prompt_tokens": response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else None,
-        "completion_tokens": response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else None,
-        "total_tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
-    }
-
-    return model_out, usage, model_code
+def print_no_diff_notice():
+    console.print("[yellow](no diff; content is identical)[/yellow]")
 
 
 def unified_diff_lines(
@@ -871,14 +649,213 @@ def unified_diff_lines(
     new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
 
-def format_diff_block(old_text: str, new_text: str, *, filename: str, context_lines: int = 2) -> str:
-    diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines, fromfile=f"a/{filename}", tofile=f"b/{filename}")
-    return "\n".join(diff_lines)
+
+def guess_syntax_lexer_name(text: str) -> str:
+    sample = "\n".join(text.splitlines()[:50]).lower()
+
+    looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or " @@" in sample
+    if looks_like_diff:
+        return "diff"
+
+    looks_like_json = sample.startswith("{") or sample.startswith("[")
+    if looks_like_json:
+        return "json"
+
+    looks_like_python = "def " in sample or "import " in sample or "class " in sample
+    if looks_like_python:
+        return "python"
+
+    return "text"
+
+
+def guess_syntax_lexer_name_from_filename(filename: str | None) -> str | None:
+    name = as_non_empty_str(filename)
+    if not name:
+        return None
+
+    suffix = Path(name).suffix.lower()
+    ext_map = {
+        ".py": "python",
+        ".json": "json",
+        ".json5": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+        ".diff": "diff",
+        ".patch": "diff",
+        ".toml": "toml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".txt": "text",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".html": "html",
+        ".htm": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".sql": "sql",
+        ".xml": "xml",
+    }
+
+    return ext_map.get(suffix)
+
+
+def syntax_text(body: str, *, lexer_name: str) -> Text:
+    s = Syntax(
+        body,
+        lexer_name,
+        theme="ansi_dark",
+        line_numbers=False,
+        word_wrap=False,
+        code_width=0,
+        indent_guides=False,
+    )
+    return s.highlight(body)
+
+
+def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
+    if not is_hunk_header_line(line):
+        return None
+
+    s = line.strip()
+    if not (s.startswith(" @@") and s.endswith(" @@")):
+        at = s.find(" @@", 2)
+        if at < 0:
+            return None
+        s = s[: at + 2]
+
+    inner = s.strip(" @ ")
+    parts = inner.split(" ")
+    parts = list(filter(None, parts))
+    if len(parts) < 2:
+        return None
+
+    old_part = parts[0]
+    new_part = parts[1]
+    if not (old_part.startswith("-") and new_part.startswith("+")):
+        return None
+
+    def parse_range(p: str) -> tuple[int, int] | None:
+        core = p[1:]
+        if "," in core:
+            a, b = core.split(",", 1)
+            a_i = coerce_int(a)
+            b_i = coerce_int(b)
+            return (a_i, b_i) if a_i is not None and b_i is not None else None
+        a_i = coerce_int(core)
+        return (a_i, 1) if a_i is not None else None
+
+    old_r = parse_range(old_part)
+    new_r = parse_range(new_part)
+    if old_r is None or new_r is None:
+        return None
+
+    old_start, old_len = old_r
+    new_start, new_len = new_r
+    return (old_start, old_len, new_start, new_len)
+
+
+def format_combined_diff_lines(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+) -> list[tuple[str, Text]]:
+    diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
+
+    out: list[tuple[str, Text]] = []
+
+    filename_lexer = guess_syntax_lexer_name_from_filename(filename)
+    old_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(old_text)
+    new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
+
+    def push(kind: str, line: Text):
+        out.append((kind, line[:-1]))
+
+    def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
+        return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
+
+    old_ln = 1
+    new_ln = 1
+
+    for line in diff_lines:
+        if is_file_header_line(line) or not line:
+            continue
+
+        if is_hunk_header_line(line):
+            parsed = parse_unified_hunk_header(line)
+            if parsed is not None:
+                old_ln = parsed[0]
+                new_ln = parsed[2]
+            continue
+
+        prefix = line[:1]
+        body = line[1:]
+
+        if prefix == " ":
+            push("context", numbered_line(new_ln, left_style=None, mid="   ", body=body, lexer=new_lexer))
+            old_ln += 1
+            new_ln += 1
+            continue
+
+        if prefix == "-":
+            push("delete", numbered_line(old_ln, left_style="bright_red on dark_red", mid=" - ", body=body, lexer=old_lexer))
+            old_ln += 1
+            continue
+
+        if prefix == "+":
+            push("insert", numbered_line(new_ln, left_style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
+            new_ln += 1
+            continue
+
+        push("header", Text(line))
+
+    return out
+
+
+def print_numbered_combined_diff(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    title: str | None = None,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+):
+    if title:
+        console.print(f"\n{title}")
+
+    lines = format_combined_diff_lines(
+        old_text,
+        new_text,
+        context_lines=context_lines,
+        lexer_name=lexer_name,
+        filename=filename,
+    )
+
+    if not lines:
+        print_no_diff_notice()
+        return
+
+    for _, t in lines:
+        console.print(t)
+
 
 def print_change_preview(filename: str, original: str, updated: str):
-    print(f"\n{filename}")
-    block = format_diff_block(original, updated, filename=filename, context_lines=2)
-    print(block if block.strip() else "(no diff; content is identical)")
+    print_numbered_combined_diff(
+        original,
+        updated,
+        context_lines=2,
+        title=filename,
+        filename=filename,
+    )
 
 def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
     def replace_if(haystack: str, needle: str) -> str | None:
@@ -912,17 +889,22 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         old_string = dict_get(r, "old_string")
         new_string = dict_get(r, "new_string")
         if not filename:
-            print(f"Replacement #{i} missing filename; skipping")
+            print(f"[red]Replacement #{i} missing filename; skipping[/red]")
             return None
         if old_string is None or new_string is None:
-            print(f"Replacement for {filename} missing old_string/new_string; skipping")
+            print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
             return None
         return (filename, old_string, new_string)
 
     def preview_missing_old(filename: str, old_string: str, new_string: str):
-        print(f"old_string not found in {filename}; skipping")
-        print("Replacement text (preview)")
-        print(format_diff_block(old_string, new_string, filename=filename, context_lines=2))
+        print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
+        print_numbered_combined_diff(
+            old_string,
+            new_string,
+            context_lines=2,
+            title="Replacement text (preview)",
+            filename=filename,
+        )
 
     def can_create_missing_file(old_string: str) -> bool:
         return as_non_empty_str(old_string) is None
@@ -942,11 +924,11 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
                 print_change_preview(filename, "", new_string)
                 target_path.write_text(new_string, encoding="utf-8")
                 return target_path
-            print(f"Target file not found: {target_path}")
+            print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
         if original is None:
-            print(f"Target file not found: {target_path}")
+            print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
         updated, _matched_old = apply_one_replacement(original, old_string, new_string)
@@ -955,7 +937,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             return None
 
         if updated == original:
-            print(f"No changes applied to {filename} (replacement produced identical content)")
+            print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
 
         print_change_preview(filename, original, updated)
@@ -969,9 +951,7 @@ def print_model_change_notes(model_output: dict):
         return
 
     edits = model_output.get("edit") or {}
-    note = edits.get("explanation")
-    if as_non_empty_str(note):
-        print(note)
+    print(edits.get("explanation"))
 
 def extract_commit_message(model_output: dict) -> str | None:
     if not isinstance(model_output, dict):
