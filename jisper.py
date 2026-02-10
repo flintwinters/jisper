@@ -159,9 +159,9 @@ DEFAULT_OUTPUT_SCHEMA = {
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
-    "qwen/qwen3-coder:exacto": (.22, 1.8)
-
+    "qwen/qwen3-coder:exacto": (0.22, 1.8),
 }
+
 
 def as_non_empty_str(v) -> str | None:
     if isinstance(v, str):
@@ -169,10 +169,12 @@ def as_non_empty_str(v) -> str | None:
         return s or None
     return None
 
+
 def dict_get(d: dict | None, key: str, default=None):
     if not isinstance(d, dict):
         return default
     return d.get(key, default)
+
 
 def coerce_int(v) -> int | None:
     if isinstance(v, bool):
@@ -186,22 +188,28 @@ def coerce_int(v) -> int | None:
         return int(s) if s.isdigit() else None
     return None
 
+
 def lower_keys(d: dict | None) -> dict:
     return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
 
+
 def read_text_or_none(path: Path) -> str | None:
     return path.read_text(encoding="utf-8") if path.exists() else None
+
 
 def read_json5(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def env_non_empty(name: str) -> str | None:
     return as_non_empty_str(os.getenv(name or ""))
+
 
 def get_routines_map(config: dict) -> dict:
     v = dict_get(config, "routines")
     return v if isinstance(v, dict) else {}
+
 
 def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
     name = as_non_empty_str(routine_name)
@@ -213,11 +221,13 @@ def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
     task = as_non_empty_str(task)
     return task
 
+
 def as_list_of_non_empty_str(v) -> list[str]:
     if not isinstance(v, list):
         return []
     out = list(filter(None, map(as_non_empty_str, v)))
     return list(map(str, out))
+
 
 def dedupe_keep_order(xs: list[str]) -> list[str]:
     seen = set()
@@ -230,6 +240,7 @@ def dedupe_keep_order(xs: list[str]) -> list[str]:
 
     return list(filter(keep, xs or []))
 
+
 def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
     def to_rel(p: Path) -> str:
         try_rel = p.resolve()
@@ -241,7 +252,7 @@ def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
         if not s:
             return []
 
-        p = (base_dir / s)
+        p = base_dir / s
         if p.exists() and p.is_dir():
             return list(
                 map(
@@ -261,8 +272,10 @@ def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
 
     return dedupe_keep_order(sum(map(one, values or []), []))
 
+
 def subtract_with_order(primary: list[str], subtract: set[str]) -> list[str]:
     return list(filter(lambda s: s not in subtract, primary or []))
+
 
 def resolve_included_files(config: dict) -> dict:
     base_dir = Path.cwd()
@@ -285,6 +298,7 @@ def resolve_included_files(config: dict) -> dict:
         "source_files": source_files,
     }
 
+
 def extract_file_summary_yaml(text: str) -> dict | None:
     s = as_non_empty_str(text)
     if not s:
@@ -300,16 +314,17 @@ def extract_file_summary_yaml(text: str) -> dict | None:
         return None
 
     inner = s[start + len(start_tag) : end]
-    inner = inner.strip("\n")
-    inner = inner.strip()
+    inner = inner.strip("\n").strip()
     if not inner:
         return None
 
     loaded = yaml.safe_load(inner)
     return loaded if isinstance(loaded, dict) else None
 
+
 def dump_yaml_block(d: dict) -> str:
     return yaml.safe_dump(d, sort_keys=False).rstrip() if isinstance(d, dict) else ""
+
 
 def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
     ctx = dict_get(summary, "context")
@@ -328,6 +343,7 @@ def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
     if isinstance(structural, dict):
         out_ctx["STRUCTURAL"] = structural
     return {"context": out_ctx} if out_ctx else None
+
 
 def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
     def one(filename: str) -> str | None:
@@ -351,11 +367,14 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
     joined = "\n\n".join(filter(None, map(one, files or [])))
     return joined.strip() if joined else ""
 
+
 def script_dir() -> Path:
     return Path(__file__).resolve().parent
 
+
 def default_template_prompt_path() -> Path:
     return script_dir() / DEFAULT_TEMPLATE_PROMPT_FILE
+
 
 def write_default_prompt_to_cwd() -> int:
     src = default_template_prompt_path()
@@ -372,6 +391,7 @@ def write_default_prompt_to_cwd() -> int:
     dst.write_text(content, encoding="utf-8")
     print(f"[green]Wrote {DEFAULT_PROMPT_FILE}[/green]")
     return 0
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -418,37 +438,43 @@ def main(
 
     response, usage, model_code = run(config_path, routine)
     print_model_change_notes(response)
+    print(format_token_cost_line(usage, MODEL_PRICES_USD_PER_1M[model_code]))
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
 
-    commit_message = extract_commit_message(response or {})
-    if not commit_message:
-        commit_message = "Apply model edits"
+    commit_message = extract_commit_message(response or {}) or "Apply model edits"
 
     repo = repo_from_dir(Path.cwd())
     if repo is None:
         print("[yellow]Not a git repository; skipping commit[/yellow]")
+        return
 
-    if repo is not None and changed_files:
-        committed_message = stage_and_commit(repo, changed_files, commit_message)
-        if committed_message:
-            print(f"\n[green]Committed changes:[/green] {committed_message}")
-    if repo is not None and not changed_files:
+    if not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
+        return
+
+    committed_message = stage_and_commit(repo, changed_files, commit_message)
+    if committed_message:
+        print(f"\n[green]Committed changes:[/green] {committed_message}")
+
 
 def get_base_config_value(config: dict, key: str, default: str) -> str:
     return as_non_empty_str(dict_get(config, key)) or default
 
+
 def get_model_code(config: dict) -> str:
     return get_base_config_value(config, "model", DEFAULT_MODEL)
+
 
 def get_api_key_env_var_name(config: dict) -> str:
     return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
 
+
 def get_endpoint_url(config: dict) -> str:
     return get_base_config_value(config, "endpoint", DEFAULT_URL)
+
 
 def get_api_key_from_env(env_var_name: str) -> str | None:
     return env_non_empty(env_var_name)
@@ -479,6 +505,7 @@ def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = No
         t.stylize(style, 0, len(s))
     return t
 
+
 def get_nested_str(d: dict, path: list[str]) -> str | None:
     cur = d
     for k in path:
@@ -487,6 +514,7 @@ def get_nested_str(d: dict, path: list[str]) -> str | None:
         cur = cur.get(k)
     return as_non_empty_str(cur)
 
+
 def load_prompt_file(path: Path) -> dict:
     suffix = (path.suffix or "").lower()
     if suffix in (".yaml", ".yml"):
@@ -494,6 +522,7 @@ def load_prompt_file(path: Path) -> dict:
             loaded = yaml.safe_load(f)
         return loaded if isinstance(loaded, dict) else {}
     return read_json5(path)
+
 
 def read_and_concatenate_files(file_list):
     def one(filename: str) -> str | None:
@@ -505,6 +534,7 @@ def read_and_concatenate_files(file_list):
         return f"--- FILENAME: {filename} ---\n{txt}"
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
+
 
 def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None, *, endpoint_url: str):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
@@ -550,6 +580,7 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
         }
     return payload
 
+
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
     usage = dict_get(api_json, "usage")
     prompt_tokens = coerce_int(dict_get(usage, "prompt_tokens"))
@@ -566,24 +597,6 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
 
     return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
 
-def get_model_prices_usd_per_1m(config: dict, model_code: str) -> tuple[float, float]:
-    conf_prices = config.get("model_prices_usd_per_1m")
-    if isinstance(conf_prices, dict):
-        v = conf_prices.get(model_code)
-        if isinstance(v, (list, tuple)) and len(v) == 2:
-            in_p = v[0]
-            out_p = v[1]
-            if isinstance(in_p, (int, float)) and isinstance(out_p, (int, float)):
-                return (float(in_p), float(out_p))
-
-    if model_code in MODEL_PRICES_USD_PER_1M:
-        return MODEL_PRICES_USD_PER_1M[model_code]
-
-    fallback_in = config.get("fallback_input_usd_per_1m")
-    fallback_out = config.get("fallback_output_usd_per_1m")
-    in_p = float(fallback_in) if isinstance(fallback_in, (int, float)) else DEFAULT_FALLBACK_INPUT_USD_PER_1M
-    out_p = float(fallback_out) if isinstance(fallback_out, (int, float)) else DEFAULT_FALLBACK_OUTPUT_USD_PER_1M
-    return (in_p, out_p)
 
 def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
     if prompt_tokens is None and completion_tokens is None:
@@ -592,11 +605,31 @@ def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, 
     ct = float(completion_tokens or 0)
     return (pt * in_usd_per_1m + ct * out_usd_per_1m) / 1_000_000.0
 
-def format_token_cost_line(usage: dict, in_usd_per_1m: float, out_usd_per_1m: float) -> str:
+
+def format_token_cost_line(usage: dict, cost) -> str:
+    in_usd_per_1m, out_usd_per_1m = cost
     pt = dict_get(usage, "prompt_tokens")
     ct = dict_get(usage, "completion_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
     return f"[bright_black]${cost:.4f}[/bright_black]"
+
+
+def run_build_step(config: dict) -> int | None:
+    build_cmd = config.get("build")
+    if not build_cmd:
+        return None
+
+    result = subprocess.run(build_cmd, shell=True, capture_output=True, text=True, cwd=Path.cwd())
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    if result.returncode == 0:
+        return 0
+
+    print(f"[red]Build failed with exit code {result.returncode}[/red]")
+    return result.returncode
+
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
@@ -609,39 +642,9 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             print(f"[yellow]Available routines:[/yellow] {available}")
         raise typer.Exit(code=2)
 
-    # Execute build command if present
-    build_cmd = config.get('build')
-    if build_cmd:
-        try:
-            # Run the build command and capture output
-            result = subprocess.run(
-                build_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                cwd=Path.cwd()
-            )
-            
-            # Print the output to user (preserving colors)
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
-                
-            # If build failed, add error to config
-            if result.returncode != 0:
-                error_msg = f"Build failed with exit code {result.returncode}"
-                if 'error' not in config:
-                    config['error'] = error_msg
-                print(f"[red]{error_msg}[/red]")
-                raise typer.Exit(code=result.returncode)
-                
-        except Exception as e:
-            error_msg = f"Build execution failed: {str(e)}"
-            if 'error' not in config:
-                config['error'] = error_msg
-            print(f"[red]{error_msg}[/red]")
-            raise typer.Exit(code=1)
+    build_code = run_build_step(config)
+    if isinstance(build_code, int) and build_code != 0:
+        raise typer.Exit(code=build_code)
 
     endpoint_url = get_endpoint_url(config)
     api_key_env_var = get_api_key_env_var_name(config)
@@ -656,10 +659,6 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
-    
-    if "openrouter.ai" in endpoint_url:
-        http_referer = as_non_empty_str(dict_get(config, "http_referer"))
-        x_title = as_non_empty_str(dict_get(config, "x_title"))
 
     payload = build_payload(config, concatenated_text, routine_name, endpoint_url=endpoint_url)
 
@@ -671,28 +670,24 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             print("[red]API Error: Authentication failed (401 Unauthorized)[/red]")
             print("\n[yellow]Please check the following:[/yellow]")
             print(f"1. The API key environment variable is set correctly: [cyan]{api_key_env_var}[/cyan]")
-            print(f"2. The API key itself is valid.")
+            print("2. The API key itself is valid.")
             print(f"3. The endpoint URL is correct: [cyan]{endpoint_url}[/cyan]")
         else:
             print(f"[red]API Error: Received status code {response.status_code}[/red]")
-            try:
-                print(response.json())
-            except Exception:
-                print(response.text)
+            print(response.text)
         raise typer.Exit(code=1)
 
     api_json = response.json()
     model_code = get_model_code(config)
-    model_code = get_model_code(config)
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
-    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config, model_code)
-    
+
     choices = api_json.get("choices")
     if choices:
         return (json.loads(choices[0]["message"]["content"]), usage, model_code)
     print("[red]API formatting error[/red]")
     print(api_json)
     exit(1)
+
 
 def print_no_diff_notice():
     console.print("[yellow](no diff; content is identical)[/yellow]")
@@ -706,15 +701,12 @@ def unified_diff_lines(
     fromfile: str = "a",
     tofile: str = "b",
 ) -> list[str]:
-    
-
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
 
 
 def guess_syntax_lexer_name(text: str) -> str:
-
     sample = "\n".join(text.splitlines()[:50]).lower()
 
     looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or " @@" in sample
@@ -841,7 +833,7 @@ def format_combined_diff_lines(
     new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
 
     def push(kind: str, line: Text):
-        out.append((kind, line))
+        out.append((kind, line[:-1]))
 
     def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
         return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
@@ -921,6 +913,7 @@ def print_change_preview(filename: str, original: str, updated: str):
         filename=filename,
     )
 
+
 def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
     def replace_if(haystack: str, needle: str) -> str | None:
         return haystack.replace(needle, new_string) if needle and needle in haystack else None
@@ -945,10 +938,11 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
 
     return (updated, matched_old)
 
+
 def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
     base_dir = base_dir or Path.cwd()
 
-    def get_fields(i: int, r: dict) -> tuple[str | None, str | None, str | None] | None:
+    def fields(i: int, r: dict) -> tuple[str, str, str] | None:
         filename = dict_get(r, "filename")
         old_string = dict_get(r, "old_string")
         new_string = dict_get(r, "new_string")
@@ -960,46 +954,34 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             return None
         return (filename, old_string, new_string)
 
-    def preview_missing_old(filename: str, old_string: str, new_string: str):
-        print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
-        # print_numbered_combined_diff(
-        #     old_string,
-        #     new_string,
-        #     context_lines=2,
-        #     title="Replacement text (preview)",
-        #     filename=filename,
-        # )
-
     def can_create_missing_file(old_string: str) -> bool:
         return as_non_empty_str(old_string) is None
 
-    def apply_one_file(i: int, r: dict) -> Path | None:
-        fields = get_fields(i, r)
-        if fields is None:
+    def load_target_text(path: Path) -> str | None:
+        return read_text_or_none(path) if path.exists() else None
+
+    def apply_one(i: int, r: dict) -> Path | None:
+        f = fields(i, r)
+        if f is None:
             return None
-        filename, old_string, new_string = fields
+        filename, old_string, new_string = f
 
         target_path = (base_dir / filename).resolve()
-        original = read_text_or_none(target_path)
-        
-        # Handle missing file creation
-        if original is None and not target_path.exists():
-            if can_create_missing_file(old_string):
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                print_change_preview(filename, "", new_string)
-                target_path.write_text(new_string, encoding="utf-8")
-                return target_path
-            print(f"[red]Target file not found: {target_path}[/red]")
-            return None
-        
+        original = load_target_text(target_path)
+
+        if original is None and can_create_missing_file(old_string):
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            print_change_preview(filename, "", new_string)
+            target_path.write_text(new_string, encoding="utf-8")
+            return target_path
+
         if original is None:
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
-        # Apply replacement logic
         updated, _matched_old = apply_one_replacement(original, old_string, new_string)
         if updated is None:
-            preview_missing_old(filename, old_string, new_string)
+            print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
             return None
 
         if updated == original:
@@ -1010,8 +992,8 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
-    # Use enumerate with unpacking for clarity
-    return [result for result in (apply_one_file(i, r) for i, r in enumerate(replacements or [])) if result is not None]
+    return list(filter(None, (apply_one(i, r) for i, r in enumerate(replacements or []))))
+
 
 def print_model_change_notes(model_output: dict):
     if not isinstance(model_output, dict):
@@ -1019,11 +1001,13 @@ def print_model_change_notes(model_output: dict):
 
     edits = model_output.get("edit") or {}
 
+
 def extract_commit_message(model_output: dict) -> str | None:
     if not isinstance(model_output, dict):
         return None
 
     return get_nested_str(model_output, ["commit_message"]) or get_nested_str(model_output, ["edit", "commit_message"])
+
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
     if (base_dir / ".git").exists():
@@ -1037,6 +1021,7 @@ def repo_from_dir(base_dir: Path) -> git.Repo | None:
 
     return None
 
+
 def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
     repo_root = Path(repo.working_tree_dir or ".").resolve()
     relpaths = list(map(lambda p: str(p.resolve().relative_to(repo_root)), changed_files))
@@ -1048,6 +1033,7 @@ def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) ->
     repo.index.add(relpaths)
     repo.index.commit(message)
     return message
+
 
 def undo_last_commit(base_dir: Path) -> int:
     repo = repo_from_dir(base_dir)
@@ -1065,6 +1051,7 @@ def undo_last_commit(base_dir: Path) -> int:
 
     repo.git.reset("--hard", "HEAD~1")
     return 0
+
 
 def redo_last_commit(base_dir: Path) -> int:
     repo = repo_from_dir(base_dir)
@@ -1088,6 +1075,7 @@ def redo_last_commit(base_dir: Path) -> int:
 
     repo.git.reset("--hard", orig_head.hexsha)
     return 0
+
 
 if __name__ == "__main__":
     app()
