@@ -154,6 +154,7 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (1.75, 14.0),
     "gpt-5-mini": (0.25, 2.0),
     "gemini-2.5-pro": (4.0, 18.0),
+    "qwen/qwen3-coder": (0.22, 1.0),
 }
 
 def as_non_empty_str(v) -> str | None:
