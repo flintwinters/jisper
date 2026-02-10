@@ -647,7 +647,11 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
     api_json = response.json()
     model_code = get_model_code(config)
+    model_code = get_model_code(config)
     usage = extract_usage_from_api_response(api_json, dict(response.headers))
+    in_usd_per_1m, out_usd_per_1m = get_model_prices_usd_per_1m(config, model_code)
+    cost_line = format_token_cost_line(model_code, usage, in_usd_per_1m, out_usd_per_1m)
+    print(cost_line)
     choices = api_json.get("choices")
     if choices:
         return (json.loads(choices[0]["message"]["content"]), usage, model_code)
