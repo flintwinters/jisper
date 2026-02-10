@@ -88,6 +88,8 @@ import os
 import json5 as json
 import yaml
 import difflib
+import subprocess
+import sys
 from pathlib import Path
 import git
 import typer
@@ -150,6 +152,7 @@ DEFAULT_OUTPUT_SCHEMA = {
     "required": ["edit"],
 }
 
+# (input, output)
 MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (1.75, 14.0),
     "gpt-5-mini": (0.25, 2.0),
@@ -412,6 +415,46 @@ def main(
 
     response, usage, model_code = run(config, routine)
     print_model_change_notes(response or {})
+
+    # Handle build command if present
+    config_obj = load_prompt_file(config)
+    build_cmd = config_obj.get('build')
+    if build_cmd:
+        print(f"\nExecuting build command: {build_cmd}")
+        try:
+            # Use subprocess.Popen to stream output in real-time with color preservation
+            process = subprocess.Popen(
+                build_cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            output_lines = []
+            if process.stdout:
+                for line in process.stdout:
+                    print(line, end='')
+                    output_lines.append(line)
+            
+            return_code = process.wait()
+            output = ''.join(output_lines)
+            
+            if return_code != 0:
+                # Add error to config and write back to file
+                config_obj['error'] = output
+                if config.suffix in ('.yaml', '.yml'):
+                    with config.open('w', encoding='utf-8') as f:
+                        yaml.safe_dump(config_obj, f, sort_keys=False)
+                else:
+                    # For JSON5, we'll need to rewrite the file
+                    config.write_text(json.dumps(config_obj, indent=2), encoding='utf-8')
+                print(f"\nBuild failed with exit code {return_code}. Error added to config file.")
+                sys.exit(return_code)
+        except Exception as e:
+            print(f"\nFailed to execute build command: {e}")
+            sys.exit(1)
 
     edits = (response or {}).get("edit", {})
     replacements = edits.get("replacements", [])
