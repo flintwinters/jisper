@@ -502,7 +502,7 @@ def read_and_concatenate_files(file_list):
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
-def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None):
+def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None, *, endpoint_url: str):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
@@ -536,15 +536,18 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     }
 
     if schema:
-        payload["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "structured_response",
-                "strict": True,
-                "schema": schema,
-            },
-        }
-
+        is_open_router = "openrouter.ai" in endpoint_url
+        if is_open_router:
+            payload["response_format"] = {"type": "json_object", "schema": schema}
+        else:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
     return payload
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
@@ -617,8 +620,12 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
+    
+    if "openrouter.ai" in endpoint_url:
+        http_referer = as_non_empty_str(dict_get(config, "http_referer"))
+        x_title = as_non_empty_str(dict_get(config, "x_title"))
 
-    payload = build_payload(config, concatenated_text, routine_name)
+    payload = build_payload(config, concatenated_text, routine_name, endpoint_url=endpoint_url)
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
