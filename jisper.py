@@ -541,6 +541,7 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
         payload["response_format"] = {
             "type": "json_schema",
             "json_schema": {
+                "name": "response_schema",
                 "strict": True,
                 "schema": schema,
             },
@@ -666,12 +667,15 @@ def unified_diff_lines(
     fromfile: str = "a",
     tofile: str = "b",
 ) -> list[str]:
+    
+
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
     return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
 
 
 def guess_syntax_lexer_name(text: str) -> str:
+
     sample = "\n".join(text.splitlines()[:50]).lower()
 
     looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or " @@" in sample
@@ -821,7 +825,7 @@ def format_combined_diff_lines(
         body = line[1:]
 
         if prefix == " ":
-            push("context", numbered_line(new_ln, left_style=None, mid="   ", body=body, lexer=new_lexer))
+            push("context", numbered_line(old_ln, left_style=None, mid="   ", body=body, lexer=old_lexer))
             old_ln += 1
             new_ln += 1
             continue
