@@ -91,6 +91,8 @@ import difflib
 from pathlib import Path
 import git
 import typer
+import subprocess
+import sys
 
 from rich import print
 from rich.console import Console
