@@ -459,7 +459,7 @@ def is_file_header_line(line: str) -> bool:
 
 
 def is_hunk_header_line(line: str) -> bool:
-    return line.startswith(" @@")
+    return line.startswith("@@") or line.startswith(" @@")
 
 
 def is_diff_meta_line(line: str) -> bool:
@@ -787,15 +787,15 @@ def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
         return None
 
     s = line.strip()
-    if not (s.startswith(" @@") and s.endswith(" @@")):
-        at = s.find(" @@", 2)
-        if at < 0:
-            return None
-        s = s[: at + 2]
+    if not (s.startswith("@@") and "@@" in s[2:]):
+        return None
 
-    inner = s.strip(" @ ")
-    parts = inner.split(" ")
-    parts = list(filter(None, parts))
+    end = s.find("@@", 2)
+    if end < 0:
+        return None
+
+    inner = s[2:end].strip()
+    parts = list(filter(None, inner.split(" ")))
     if len(parts) < 2:
         return None
 
@@ -841,7 +841,7 @@ def format_combined_diff_lines(
     new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
 
     def push(kind: str, line: Text):
-        out.append((kind, line[:-1]))
+        out.append((kind, line))
 
     def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
         return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
