@@ -502,7 +502,7 @@ def run_build_command(config: dict) -> dict:
         result = subprocess.run(
             build_cmd,
             shell=True,
-            capture_output=False,
+            capture_output=True,
             text=True
         )
         if result.returncode != 0:
