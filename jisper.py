@@ -777,6 +777,7 @@ def run_google_genai(config: dict, concatenated_text: str, routine_name: str | N
     }
     if schema:
         generation_config["response_mime_type"] = "application/json"
+        generation_config["response_schema"] = schema
 
     print("Waiting for model...")
     response = model.generate_content(
