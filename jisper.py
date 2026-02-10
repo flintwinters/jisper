@@ -617,17 +617,11 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
             result = subprocess.run(
                 build_cmd,
                 shell=True,
-                capture_output=True,
+                capture_output=False,  # Don't capture so colors are preserved
                 text=True,
                 cwd=Path.cwd()
             )
             
-            # Print the output to user (preserving colors)
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
-                
             # If build failed, add error to config
             if result.returncode != 0:
                 error_msg = f"Build failed with exit code {result.returncode}"
@@ -963,13 +957,13 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
     def preview_missing_old(filename: str, old_string: str, new_string: str):
         print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
-        print_numbered_combined_diff(
-            old_string,
-            new_string,
-            context_lines=2,
-            title="Replacement text (preview)",
-            filename=filename,
-        )
+        # print_numbered_combined_diff(
+        #     old_string,
+        #     new_string,
+        #     context_lines=2,
+        #     title="Replacement text (preview)",
+        #     filename=filename,
+        # )
 
     def can_create_missing_file(old_string: str) -> bool:
         return as_non_empty_str(old_string) is None
@@ -1019,7 +1013,6 @@ def print_model_change_notes(model_output: dict):
         return
 
     edits = model_output.get("edit") or {}
-    print(edits.get("explanation"))
 
 def extract_commit_message(model_output: dict) -> str | None:
     if not isinstance(model_output, dict):
