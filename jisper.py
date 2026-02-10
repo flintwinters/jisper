@@ -368,16 +368,8 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
     return joined.strip() if joined else ""
 
 
-def script_dir() -> Path:
-    return Path(__file__).resolve().parent
-
-
-def default_template_prompt_path() -> Path:
-    return script_dir() / DEFAULT_TEMPLATE_PROMPT_FILE
-
-
 def write_default_prompt_to_cwd() -> int:
-    src = default_template_prompt_path()
+    src = Path(__file__).resolve().parent / DEFAULT_TEMPLATE_PROMPT_FILE
     if not src.exists() or not src.is_file():
         print(f"[red]Missing template prompt file:[/red] {src}")
         return 1
@@ -437,8 +429,6 @@ def main(
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
     response, usage, model_code = run(config_path, routine)
-    print_model_change_notes(response)
-    print(format_token_cost_line(usage, MODEL_PRICES_USD_PER_1M[model_code]))
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
@@ -447,6 +437,7 @@ def main(
     commit_message = extract_commit_message(response or {}) or "Apply model edits"
 
     repo = repo_from_dir(Path.cwd())
+    print(format_token_cost_line(usage, MODEL_PRICES_USD_PER_1M[model_code]))
     if repo is None:
         print("[yellow]Not a git repository; skipping commit[/yellow]")
         return
@@ -460,24 +451,16 @@ def main(
         print(f"\n[green]Committed changes:[/green] {committed_message}")
 
 
-def get_base_config_value(config: dict, key: str, default: str) -> str:
-    return as_non_empty_str(dict_get(config, key)) or default
-
-
 def get_model_code(config: dict) -> str:
-    return get_base_config_value(config, "model", DEFAULT_MODEL)
+    return as_non_empty_str(dict_get(config, "model")) or DEFAULT_MODEL
 
 
 def get_api_key_env_var_name(config: dict) -> str:
-    return get_base_config_value(config, "api_key_env_var", DEFAULT_API_KEY_ENV_VAR)
+    return as_non_empty_str(dict_get(config, "api_key_env_var")) or DEFAULT_API_KEY_ENV_VAR
 
 
 def get_endpoint_url(config: dict) -> str:
-    return get_base_config_value(config, "endpoint", DEFAULT_URL)
-
-
-def get_api_key_from_env(env_var_name: str) -> str | None:
-    return env_non_empty(env_var_name)
+    return as_non_empty_str(dict_get(config, "endpoint")) or DEFAULT_URL
 
 
 def is_file_header_line(line: str) -> bool:
@@ -486,10 +469,6 @@ def is_file_header_line(line: str) -> bool:
 
 def is_hunk_header_line(line: str) -> bool:
     return line.startswith("@@") or line.startswith(" @@")
-
-
-def is_diff_meta_line(line: str) -> bool:
-    return is_file_header_line(line)
 
 
 def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
@@ -611,7 +590,7 @@ def format_token_cost_line(usage: dict, cost) -> str:
     pt = dict_get(usage, "prompt_tokens")
     ct = dict_get(usage, "completion_tokens")
     cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
-    return f"[bright_black]${cost:.4f}[/bright_black]"
+    return f"${cost:.4f}"
 
 
 def run_build_step(config: dict) -> int | None:
@@ -650,7 +629,7 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     api_key_env_var = get_api_key_env_var_name(config)
     if "openrouter.ai" in endpoint_url and api_key_env_var == DEFAULT_API_KEY_ENV_VAR:
         api_key_env_var = "OPENROUTER_API_KEY"
-    api_key = get_api_key_from_env(api_key_env_var)
+    api_key = env_non_empty(api_key_env_var)
 
     includes = resolve_included_files(config)
     concatenated_text = read_and_concatenate_files(includes["source_files"])
@@ -904,16 +883,6 @@ def print_numbered_combined_diff(
         console.print(t)
 
 
-def print_change_preview(filename: str, original: str, updated: str):
-    print_numbered_combined_diff(
-        original,
-        updated,
-        context_lines=2,
-        title=filename,
-        filename=filename,
-    )
-
-
 def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
     def replace_if(haystack: str, needle: str) -> str | None:
         return haystack.replace(needle, new_string) if needle and needle in haystack else None
@@ -971,7 +940,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
         if original is None and can_create_missing_file(old_string):
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            print_change_preview(filename, "", new_string)
+            print_numbered_combined_diff("", new_string, context_lines=2, title=filename, filename=filename)
             target_path.write_text(new_string, encoding="utf-8")
             return target_path
 
@@ -988,18 +957,11 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
 
-        print_change_preview(filename, original, updated)
+        print_numbered_combined_diff(original, updated, context_lines=2, title=filename, filename=filename)
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
     return list(filter(None, (apply_one(i, r) for i, r in enumerate(replacements or []))))
-
-
-def print_model_change_notes(model_output: dict):
-    if not isinstance(model_output, dict):
-        return
-
-    edits = model_output.get("edit") or {}
 
 
 def extract_commit_message(model_output: dict) -> str | None:
