@@ -25,7 +25,7 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
                                                                       │
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────┴───────┐
 │   Git Commit │◀────│   Stage      │◀────│   Apply      │◀────│  Build       │
-│  (optional)  │     │   Changes    │     │ Replacements │     │  Payload     │
+│              │     │   Changes    │     │ Replacements │     │  Payload     │
 └──────────────┘     └──────────────┘     │(with preview)│     │(system+task+ │
                                           └──────────────┘     │ source)      │
                                                                └──────┬───────┘
