@@ -1,10 +1,16 @@
-model: gpt-5.2
+
+# model: gpt-5.2
+provider: openrouter
+endpoint: https://openrouter.ai/api/v1/chat/completions
+model: moonshotai/kimi-k2.5
 
 full_files:
 - README.md
-- jisper.py
+
 structural_level_files: []
 intent_level_files: []
+
+language: python
 
 
 task: >
