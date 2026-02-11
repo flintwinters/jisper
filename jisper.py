@@ -401,7 +401,8 @@ def main(
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
-    changed_files = apply_replacements(replacements)
+    language = as_non_empty_str(config.get("language"))
+    changed_files = apply_replacements(replacements, language=language)
     run_build_step(config, config_path)
 
     edit_data = (response or {}).get("edit", {}) or {}
@@ -629,7 +630,9 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
 
 
-def guess_lexer(text: str = "", filename: str | None = None) -> str:
+def guess_lexer(text: str = "", filename: str | None = None, language: str | None = None) -> str:
+    if language:
+        return language
     if filename:
         ext = Path(filename).suffix.lower()
         mapping = {
@@ -805,7 +808,7 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
     return (updated, matched_old)
 
 
-def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
+def apply_replacements(replacements, base_dir: Path | None = None, language: str | None = None) -> list[Path]:
     # Apply model-generated string replacements to disk with diff preview
     base_dir = base_dir or Path.cwd()
 
@@ -826,7 +829,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
         if original is None and as_non_empty_str(old_string) is None:
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            print_numbered_combined_diff("", new_string, context_lines=2, title=filename, filename=filename)
+            print_numbered_combined_diff("", new_string, context_lines=2, title=filename, filename=filename, lexer_name=language)
             target_path.write_text(new_string, encoding="utf-8")
             return target_path
 
@@ -842,7 +845,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
 
-        print_numbered_combined_diff(original, updated, context_lines=2, title=filename, filename=filename)
+        print_numbered_combined_diff(original, updated, context_lines=2, title=filename, filename=filename, lexer_name=language)
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
