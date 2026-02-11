@@ -923,12 +923,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             return None
         return (filename, old_string, new_string)
 
-    def can_create_missing_file(old_string: str) -> bool:
-        return as_non_empty_str(old_string) is None
-
-    def load_target_text(path: Path) -> str | None:
-        return read_text_or_none(path) if path.exists() else None
-
     def apply_one(i: int, r: dict) -> Path | None:
         f = fields(i, r)
         if f is None:
@@ -936,9 +930,9 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         filename, old_string, new_string = f
 
         target_path = (base_dir / filename).resolve()
-        original = load_target_text(target_path)
+        original = read_text_or_none(target_path) if target_path.exists() else None
 
-        if original is None and can_create_missing_file(old_string):
+        if original is None and as_non_empty_str(old_string) is None:
             target_path.parent.mkdir(parents=True, exist_ok=True)
             print_numbered_combined_diff("", new_string, context_lines=2, title=filename, filename=filename)
             target_path.write_text(new_string, encoding="utf-8")
