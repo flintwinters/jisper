@@ -552,6 +552,9 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     error_message = f"Build failed with exit code {return_code}\n{full_output}"
 
     yaml_inst = YAML()
+    yaml_inst.default_flow_style = False
+    yaml_inst.allow_unicode = True
+    yaml_inst.width = float('inf')
     with open(config_path, 'r', encoding='utf-8') as f:
         existing_config = yaml_inst.load(f) or {}
     if 'error' in existing_config:
