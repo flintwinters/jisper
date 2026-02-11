@@ -406,7 +406,7 @@ def main(
 
     edit_data = (response or {}).get("edit", {}) or {}
     commit_message = as_non_empty_str(response.get("commit_message")) or as_non_empty_str(edit_data.get("commit_message")) or "Apply model edits"
-    print(f"\n[green]Commit message:[/green] {commit_message}")
+    print(f"\n[green]Commit message:[/green] {commit_message}\n")
 
     run_build_step(config, config_path)
 
