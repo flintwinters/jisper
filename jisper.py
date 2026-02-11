@@ -445,12 +445,12 @@ def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = No
 
 def load_prompt_file(path: Path) -> dict:
     suffix = (path.suffix or "").lower()
-    if suffix in (".yaml", ".yml"):
-        with path.open("r", encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-        return loaded if isinstance(loaded, dict) else {}
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        if suffix in (".yaml", ".yml"):
+            loaded = yaml.safe_load(f)
+        else:
+            loaded = json.load(f)
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def read_and_concatenate_files(file_list):
