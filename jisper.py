@@ -91,7 +91,8 @@ import difflib
 from pathlib import Path
 import git
 import typer
-import subprocess
+import pty
+import re
 import sys
 
 from ruamel.yaml import YAML
@@ -527,59 +528,54 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     if not build_cmd:
         return None
 
-    process = subprocess.Popen(
-        build_cmd,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        cwd=Path.cwd()
-    )
+    output_chunks: list[bytes] = []
 
-    output_lines = []
-    if process.stdout:
-        for line in iter(process.stdout.readline, b''):
-            if line:
-                sys.stdout.buffer.write(line)
-                sys.stdout.flush()
-                output_lines.append(line)
-        process.stdout.close()
+    def master_read(fd: int) -> bytes:
+        data = os.read(fd, 1024)
+        if data:
+            output_chunks.append(data)
+        return data
 
-    return_code = process.wait()
+    status = pty.spawn(["/bin/sh", "-c", build_cmd], master_read)
+    return_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else status
+
+    full_output = b"".join(output_chunks).decode("utf-8", errors="replace")
+    ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    sanitized_output = ansi_escape.sub("", full_output)
 
     yaml_inst = YAML()
     yaml_inst.default_flow_style = False
     yaml_inst.allow_unicode = True
-    yaml_inst.width = float('inf')
-    with open(config_path, 'r', encoding='utf-8') as f:
+    yaml_inst.width = float("inf")
+    with open(config_path, "r", encoding="utf-8") as f:
         existing_config = yaml_inst.load(f) or {}
 
     if return_code == 0:
-        if 'error' in existing_config:
-            del existing_config['error']
-        if 'success' in existing_config:
-            existing_config['success'] = True
-        elif hasattr(existing_config, 'insert') and 'build' in existing_config:
+        if "error" in existing_config:
+            del existing_config["error"]
+        if "success" in existing_config:
+            existing_config["success"] = True
+        elif hasattr(existing_config, "insert") and "build" in existing_config:
             keys = list(existing_config.keys())
-            existing_config.insert(keys.index('build') + 1, 'success', True)
+            existing_config.insert(keys.index("build") + 1, "success", True)
         else:
-            existing_config['success'] = True
-        with open(config_path, 'w', encoding='utf-8') as f:
+            existing_config["success"] = True
+        with open(config_path, "w", encoding="utf-8") as f:
             yaml_inst.dump(existing_config, f)
         return 0
 
-    full_output = b''.join(output_lines).decode('utf-8', errors='replace')
-    error_message = f"Build failed with exit code {return_code}\n{full_output}"
+    error_message = f"Build failed with exit code {return_code}\n{sanitized_output}"
 
-    if 'success' in existing_config:
-        del existing_config['success']
-    if 'error' in existing_config:
-        existing_config['error'] = error_message
-    elif hasattr(existing_config, 'insert') and 'build' in existing_config:
+    if "success" in existing_config:
+        del existing_config["success"]
+    if "error" in existing_config:
+        existing_config["error"] = error_message
+    elif hasattr(existing_config, "insert") and "build" in existing_config:
         keys = list(existing_config.keys())
-        existing_config.insert(keys.index('build') + 1, 'error', error_message)
+        existing_config.insert(keys.index("build") + 1, "error", error_message)
     else:
-        existing_config['error'] = error_message
-    with open(config_path, 'w', encoding='utf-8') as f:
+        existing_config["error"] = error_message
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml_inst.dump(existing_config, f)
 
     return return_code
