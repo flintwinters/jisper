@@ -554,7 +554,13 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     yaml_inst = YAML()
     with open(config_path, 'r', encoding='utf-8') as f:
         existing_config = yaml_inst.load(f) or {}
-    existing_config['error'] = error_message
+    if 'error' in existing_config:
+        existing_config['error'] = error_message
+    elif hasattr(existing_config, 'insert') and 'build' in existing_config:
+        keys = list(existing_config.keys())
+        existing_config.insert(keys.index('build') + 1, 'error', error_message)
+    else:
+        existing_config['error'] = error_message
     with open(config_path, 'w', encoding='utf-8') as f:
         yaml_inst.dump(existing_config, f)
 
