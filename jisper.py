@@ -473,6 +473,8 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     # Assemble the chat completions payload with system/user messages and optional JSON schema
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
+    project_prompt = as_non_empty_str(prompt_config.get("project_prompt"))
+    system_prompt = f"{system_prompt}\n\n{project_prompt}" if project_prompt else system_prompt
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
