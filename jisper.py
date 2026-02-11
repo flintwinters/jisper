@@ -94,6 +94,7 @@ import typer
 import subprocess
 import sys
 
+from ruamel.yaml import YAML
 from rich import print
 from rich.console import Console
 from rich.text import Text
@@ -550,11 +551,12 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     full_output = b''.join(output_lines).decode('utf-8', errors='replace')
     error_message = f"Build failed with exit code {return_code}\n{full_output}"
 
+    yaml_inst = YAML()
     with open(config_path, 'r', encoding='utf-8') as f:
-        existing_config = yaml.safe_load(f) or {}
+        existing_config = yaml_inst.load(f) or {}
     existing_config['error'] = error_message
     with open(config_path, 'w', encoding='utf-8') as f:
-        yaml.dump(existing_config, f, sort_keys=False, allow_unicode=True)
+        yaml_inst.dump(existing_config, f)
 
     return return_code
 
