@@ -13,6 +13,36 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
 - Expects a **structured JSON** response that describes exact string replacements.
 - Shows a diff preview, applies the edits, and creates a git commit.
 
+## Execution flow
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Load Config │────▶│ Resolve      │────▶│  Read and    │────▶│  Extract     │
+│(YAML/JSON5)  │     │ File Lists   │     │  Concatenate │     │  Summaries   │
+└──────────────┘     │(full/struct/ │     │  Source      │     │([FILE SUMMARY│
+                     │ input levels)│     │  Files       │     │  blocks)     │
+                     └──────────────┘     └──────────────┘     └──────┬───────┘
+                                                                      │
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────┴───────┐
+│   Git Commit │◀────│   Stage      │◀────│   Apply      │◀────│  Build       │
+│  (optional)  │     │   Changes    │     │ Replacements │     │  Payload     │
+└──────────────┘     └──────────────┘     │(with preview)│     │(system+task+ │
+                                          └──────────────┘     │ source)      │
+                                                               └──────┬───────┘
+                                                                      │
+                                                               ┌──────┴───────┐
+                                                               │   Call LLM   │
+                                                               │   (OpenAI/   │
+                                                               │ Google/etc)  │
+                                                               └──────┬───────┘
+                                                                      │
+                                                               ┌──────┴───────┐
+                                                               │ Parse JSON   │
+                                                               │(replacements │
+                                                               │  array)      │
+                                                               └──────────────┘
+```
+
 ## Motivation
 
 Jisper is intentionally “dumb” about editing: the model does not return a patch, it returns a list of **(filename, old_string, new_string)** operations. That keeps the application step deterministic, makes failures obvious (can’t find `old_string`), and keeps the review loop tight (diff preview before write + git commit when available).
