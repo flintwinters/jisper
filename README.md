@@ -142,7 +142,6 @@ Notes:
 
 Jisper expects JSON with this shape:
 
-```json
 {
   "edit": {
     "explanation": "1-2 sentence explanation",
@@ -156,7 +155,6 @@ Jisper expects JSON with this shape:
     ]
   }
 }
-```
 
 Behavior notes:
 
