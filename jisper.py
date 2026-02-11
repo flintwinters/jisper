@@ -634,7 +634,9 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
     choices = api_json.get("choices")
     if choices:
-        return (json.loads(choices[0]["message"]["content"]), usage, model_code, config)
+        content = choices[0]["message"]["content"]
+        content = strip_json_code_fence(content) if isinstance(content, str) else content
+        return (json.loads(content), usage, model_code, config)
     print("[red]API formatting error[/red]")
     print(api_json)
     exit(1)
@@ -642,33 +644,23 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
 
 
-def guess_lexer(text: str = "", filename: str | None = None, language: str | None = None) -> str:
-    if language:
-        return language
-    if filename:
-        ext = Path(filename).suffix.lower()
-        mapping = {
-            ".py": "python", ".json": "json", ".json5": "json",
-            ".go": "go",
-            ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
-            ".diff": "diff", ".patch": "diff", ".toml": "toml",
-            ".ini": "ini", ".cfg": "ini", ".txt": "text",
-            ".sh": "bash", ".bash": "bash", ".zsh": "bash",
-            ".js": "javascript", ".jsx": "jsx", ".ts": "typescript",
-            ".tsx": "tsx", ".html": "html", ".htm": "html",
-            ".css": "css", ".scss": "scss", ".sql": "sql", ".xml": "xml",
-        }
-        if ext in mapping:
-            return mapping[ext]
-    
-    sample = "\n".join(text.splitlines()[:50]).lower()
-    if sample.startswith(("diff ", "---", "+++")) or " @@" in sample:
-        return "diff"
-    if sample.startswith(("{", "[")):
-        return "json"
-    if any(kw in sample for kw in ("def ", "import ", "class ")):
-        return "python"
-    return "text"
+def strip_json_code_fence(s: str) -> str:
+    t = s.strip()
+    if not t.startswith("```"):
+        return s
+    lines = t.splitlines()
+    if not lines:
+        return s
+    first = lines[0].strip().lower()
+    if first not in ("```json", "```"):
+        return s
+    if len(lines) < 2:
+        return s
+    if lines[-1].strip() != "```":
+        return s
+    inner = "\n".join(lines[1:-1])
+    return inner.strip() + "\n"
+
 
 
 def syntax_text(body: str, *, lexer_name: str) -> Text:
