@@ -160,6 +160,7 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
     "qwen/qwen3-coder:exacto": (0.22, 1.8),
+    "moonshotai/kimi-k2.5": (.25, 2.25)
 }
 
 
@@ -189,26 +190,12 @@ def coerce_int(v) -> int | None:
     return None
 
 
-def lower_keys(d: dict | None) -> dict:
-    return dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (d or {}).items()))
-
 
 def read_text_or_none(path: Path) -> str | None:
     return path.read_text(encoding="utf-8") if path.exists() else None
 
 
-def read_json5(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
-
-def env_non_empty(name: str) -> str | None:
-    return as_non_empty_str(os.getenv(name or ""))
-
-
-def get_routines_map(config: dict) -> dict:
-    v = dict_get(config, "routines")
-    return v if isinstance(v, dict) else {}
 
 
 def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
@@ -216,7 +203,8 @@ def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
     if not name:
         return None
 
-    routines = get_routines_map(config)
+    routines = dict_get(config, "routines")
+    routines = routines if isinstance(routines, dict) else {}
     task = routines.get(name)
     task = as_non_empty_str(task)
     return task
@@ -273,9 +261,6 @@ def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
     return dedupe_keep_order(sum(map(one, values or []), []))
 
 
-def subtract_with_order(primary: list[str], subtract: set[str]) -> list[str]:
-    return list(filter(lambda s: s not in subtract, primary or []))
-
 
 def resolve_included_files(config: dict) -> dict:
     base_dir = Path.cwd()
@@ -288,7 +273,7 @@ def resolve_included_files(config: dict) -> dict:
     lower_level_set = set(input_level_files + structural_level_files)
 
     full_files = resolve_paths_and_globs(full_raw, base_dir=base_dir)
-    full_files = subtract_with_order(full_files, lower_level_set)
+    full_files = list(filter(lambda s: s not in lower_level_set, full_files or []))
 
     source_files = dedupe_keep_order(full_files + structural_level_files + input_level_files)
     return {
@@ -321,9 +306,6 @@ def extract_file_summary_yaml(text: str) -> dict | None:
     loaded = yaml.safe_load(inner)
     return loaded if isinstance(loaded, dict) else None
 
-
-def dump_yaml_block(d: dict) -> str:
-    return yaml.safe_dump(d, sort_keys=False).rstrip() if isinstance(d, dict) else ""
 
 
 def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
@@ -361,7 +343,7 @@ def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
         if selected is None:
             return None
 
-        dumped = dump_yaml_block(selected)
+        dumped = yaml.safe_dump(selected, sort_keys=False).rstrip() if isinstance(selected, dict) else ""
         return f"--- FILENAME: {filename} ---\n{dumped}" if dumped else None
 
     joined = "\n\n".join(filter(None, map(one, files or [])))
@@ -434,10 +416,20 @@ def main(
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
 
-    commit_message = extract_commit_message(response or {}) or "Apply model edits"
+    model_out = response or {}
+    edit_section = model_out.get("edit", {}) or {}
+    commit_message = (
+        as_non_empty_str(model_out.get("commit_message")) or 
+        as_non_empty_str(edit_section.get("commit_message")) 
+        or "Apply model edits"
+    )
 
     repo = repo_from_dir(Path.cwd())
-    print(format_token_cost_line(usage, MODEL_PRICES_USD_PER_1M[model_code]))
+    in_usd_per_1m, out_usd_per_1m = MODEL_PRICES_USD_PER_1M[model_code]
+    pt = dict_get(usage, "prompt_tokens")
+    ct = dict_get(usage, "completion_tokens")
+    cost_val = (float(pt or 0) * in_usd_per_1m + float(ct or 0) * out_usd_per_1m) / 1_000_000.0 if pt is not None or ct is not None else 0.0
+    print(f"${cost_val:.4f}")
     if repo is None:
         print("[yellow]Not a git repository; skipping commit[/yellow]")
         return
@@ -455,43 +447,18 @@ def get_model_code(config: dict) -> str:
     return as_non_empty_str(dict_get(config, "model")) or DEFAULT_MODEL
 
 
-def get_api_key_env_var_name(config: dict) -> str:
-    return as_non_empty_str(dict_get(config, "api_key_env_var")) or DEFAULT_API_KEY_ENV_VAR
 
 
-def get_endpoint_url(config: dict) -> str:
-    return as_non_empty_str(dict_get(config, "endpoint")) or DEFAULT_URL
 
-
-def is_file_header_line(line: str) -> bool:
-    return line.startswith("---") or line.startswith("+++")
-
-
-def is_hunk_header_line(line: str) -> bool:
-    return line.startswith("@@") or line.startswith(" @@")
-
-
-def format_fixed_width_line_number(ln: int | None, *, width: int = 4) -> str:
-    if ln is None:
-        return " " * width
-    return f"{ln:>{width}}"
 
 
 def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
-    s = format_fixed_width_line_number(ln, width=width)
+    s = f"{ln:>{width}}" if ln is not None else " " * width
     t = Text(s)
     if style and ln is not None:
         t.stylize(style, 0, len(s))
     return t
 
-
-def get_nested_str(d: dict, path: list[str]) -> str | None:
-    cur = d
-    for k in path:
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(k)
-    return as_non_empty_str(cur)
 
 
 def load_prompt_file(path: Path) -> dict:
@@ -500,7 +467,8 @@ def load_prompt_file(path: Path) -> dict:
         with path.open("r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
         return loaded if isinstance(loaded, dict) else {}
-    return read_json5(path)
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def read_and_concatenate_files(file_list):
@@ -566,7 +534,7 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
     completion_tokens = coerce_int(dict_get(usage, "completion_tokens"))
     total_tokens = coerce_int(dict_get(usage, "total_tokens"))
 
-    header_map = lower_keys(response_headers)
+    header_map = dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (response_headers or {}).items()))
     prompt_tokens = prompt_tokens or coerce_int(header_map.get("x-openai-prompt-tokens"))
     completion_tokens = completion_tokens or coerce_int(header_map.get("x-openai-completion-tokens"))
     total_tokens = total_tokens or coerce_int(header_map.get("x-openai-total-tokens"))
@@ -577,20 +545,6 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
     return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
 
 
-def estimate_cost_usd(prompt_tokens: int | None, completion_tokens: int | None, in_usd_per_1m: float, out_usd_per_1m: float) -> float | None:
-    if prompt_tokens is None and completion_tokens is None:
-        return None
-    pt = float(prompt_tokens or 0)
-    ct = float(completion_tokens or 0)
-    return (pt * in_usd_per_1m + ct * out_usd_per_1m) / 1_000_000.0
-
-
-def format_token_cost_line(usage: dict, cost) -> str:
-    in_usd_per_1m, out_usd_per_1m = cost
-    pt = dict_get(usage, "prompt_tokens")
-    ct = dict_get(usage, "completion_tokens")
-    cost = estimate_cost_usd(pt, ct, in_usd_per_1m, out_usd_per_1m) or 0.0
-    return f"${cost:.4f}"
 
 
 def run_build_step(config: dict) -> int | None:
@@ -614,7 +568,8 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
-        routines = get_routines_map(config)
+        routines = dict_get(config, "routines")
+        routines = routines if isinstance(routines, dict) else {}
         available = ", ".join(sorted(map(str, routines.keys())))
         print(f"[red]Routine not found:[/red] {routine_name}")
         if available:
@@ -625,11 +580,11 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     if isinstance(build_code, int) and build_code != 0:
         raise typer.Exit(code=build_code)
 
-    endpoint_url = get_endpoint_url(config)
-    api_key_env_var = get_api_key_env_var_name(config)
+    endpoint_url = as_non_empty_str(dict_get(config, "endpoint")) or DEFAULT_URL
+    api_key_env_var = as_non_empty_str(dict_get(config, "api_key_env_var")) or DEFAULT_API_KEY_ENV_VAR
     if "openrouter.ai" in endpoint_url and api_key_env_var == DEFAULT_API_KEY_ENV_VAR:
         api_key_env_var = "OPENROUTER_API_KEY"
-    api_key = env_non_empty(api_key_env_var)
+    api_key = as_non_empty_str(os.getenv(api_key_env_var or ""))
 
     includes = resolve_included_files(config)
     concatenated_text = read_and_concatenate_files(includes["source_files"])
@@ -645,6 +600,7 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         response = requests.post(endpoint_url, headers=headers, json=payload)
 
     if response.status_code != 200:
+        print(endpoint_url, headers, payload)
         if response.status_code == 401:
             print("[red]API Error: Authentication failed (401 Unauthorized)[/red]")
             print("\n[yellow]Please check the following:[/yellow]")
@@ -668,21 +624,6 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     exit(1)
 
 
-def print_no_diff_notice():
-    console.print("[yellow](no diff; content is identical)[/yellow]")
-
-
-def unified_diff_lines(
-    old_text: str,
-    new_text: str,
-    *,
-    context_lines: int = 3,
-    fromfile: str = "a",
-    tofile: str = "b",
-) -> list[str]:
-    old_lines = old_text.splitlines(keepends=False)
-    new_lines = new_text.splitlines(keepends=False)
-    return list(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile, lineterm="", n=context_lines))
 
 
 def guess_syntax_lexer_name(text: str) -> str:
@@ -754,7 +695,7 @@ def syntax_text(body: str, *, lexer_name: str) -> Text:
 
 
 def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
-    if not is_hunk_header_line(line):
+    if not (line.startswith("@@") or line.startswith(" @@")):
         return None
 
     s = line.strip()
@@ -803,7 +744,9 @@ def format_combined_diff_lines(
     lexer_name: str | None = None,
     filename: str | None = None,
 ) -> list[tuple[str, Text]]:
-    diff_lines = unified_diff_lines(old_text, new_text, context_lines=context_lines)
+    old_lines = old_text.splitlines(keepends=False)
+    new_lines = new_text.splitlines(keepends=False)
+    diff_lines = list(difflib.unified_diff(old_lines, new_lines, fromfile="a", tofile="b", lineterm="", n=context_lines))
 
     out: list[tuple[str, Text]] = []
 
@@ -821,10 +764,10 @@ def format_combined_diff_lines(
     new_ln = 1
 
     for line in diff_lines:
-        if is_file_header_line(line) or not line:
+        if line.startswith("---") or line.startswith("+++") or not line:
             continue
 
-        if is_hunk_header_line(line):
+        if line.startswith("@@") or line.startswith(" @@"):
             parsed = parse_unified_hunk_header(line)
             if parsed is not None:
                 old_ln = parsed[0]
@@ -876,7 +819,7 @@ def print_numbered_combined_diff(
     )
 
     if not lines:
-        print_no_diff_notice()
+        console.print("[yellow](no diff; content is identical)[/yellow]")
         return
 
     for _, t in lines:
@@ -957,12 +900,6 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
     return list(filter(None, (apply_one(i, r) for i, r in enumerate(replacements or []))))
 
-
-def extract_commit_message(model_output: dict) -> str | None:
-    if not isinstance(model_output, dict):
-        return None
-
-    return get_nested_str(model_output, ["commit_message"]) or get_nested_str(model_output, ["edit", "commit_message"])
 
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
