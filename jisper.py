@@ -288,21 +288,15 @@ def extract_file_summary_yaml(text: str) -> dict | None:
     s = as_non_empty_str(text)
     if not s:
         return None
-
-    start_tag = "[FILE SUMMARY]"
-    end_tag = "[/FILE SUMMARY]"
-    start = s.find(start_tag)
+    start = s.find("[FILE SUMMARY]")
     if start < 0:
         return None
-    end = s.find(end_tag, start + len(start_tag))
+    end = s.find("[/FILE SUMMARY]", start)
     if end < 0:
         return None
-
-    inner = s[start + len(start_tag) : end]
-    inner = inner.strip("\n").strip()
+    inner = s[start + len("[FILE SUMMARY]") : end].strip()
     if not inner:
         return None
-
     loaded = yaml.safe_load(inner)
     return loaded if isinstance(loaded, dict) else None
 
@@ -312,42 +306,33 @@ def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
     ctx = dict_get(summary, "context")
     if not isinstance(ctx, dict):
         return None
-
-    intent = dict_get(ctx, "INTENT")
-    structural = dict_get(ctx, "STRUCTURAL")
-
+    intent = ctx.get("INTENT")
+    structural = ctx.get("STRUCTURAL")
     if intent_only:
         return {"context": {"INTENT": intent}} if isinstance(intent, dict) else None
-
-    out_ctx = {}
+    out = {}
     if isinstance(intent, dict):
-        out_ctx["INTENT"] = intent
+        out["INTENT"] = intent
     if isinstance(structural, dict):
-        out_ctx["STRUCTURAL"] = structural
-    return {"context": out_ctx} if out_ctx else None
+        out["STRUCTURAL"] = structural
+    return {"context": out} if out else None
 
 
 def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
-    def one(filename: str) -> str | None:
-        p = Path(filename)
-        txt = read_text_or_none(p)
+    def process_file(filename: str) -> str | None:
+        txt = read_text_or_none(Path(filename))
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
             return None
-
         summary = extract_file_summary_yaml(txt)
-        if summary is None:
+        selected = select_context_fields(summary, intent_only=intent_only) if summary else None
+        if not selected:
             return None
-
-        selected = select_context_fields(summary, intent_only=intent_only)
-        if selected is None:
-            return None
-
-        dumped = yaml.safe_dump(selected, sort_keys=False).rstrip() if isinstance(selected, dict) else ""
+        dumped = yaml.safe_dump(selected, sort_keys=False).rstrip()
         return f"--- FILENAME: {filename} ---\n{dumped}" if dumped else None
 
-    joined = "\n\n".join(filter(None, map(one, files or [])))
-    return joined.strip() if joined else ""
+    parts = filter(None, map(process_file, files or []))
+    return "\n\n".join(parts).strip()
 
 
 def write_default_prompt_to_cwd() -> int:
@@ -416,20 +401,16 @@ def main(
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
 
-    model_out = response or {}
-    edit_section = model_out.get("edit", {}) or {}
-    commit_message = (
-        as_non_empty_str(model_out.get("commit_message")) or 
-        as_non_empty_str(edit_section.get("commit_message")) 
-        or "Apply model edits"
-    )
+    edit_data = (response or {}).get("edit", {}) or {}
+    commit_message = as_non_empty_str(response.get("commit_message")) or as_non_empty_str(edit_data.get("commit_message")) or "Apply model edits"
 
     repo = repo_from_dir(Path.cwd())
-    in_usd_per_1m, out_usd_per_1m = MODEL_PRICES_USD_PER_1M[model_code]
-    pt = dict_get(usage, "prompt_tokens")
-    ct = dict_get(usage, "completion_tokens")
-    cost_val = (float(pt or 0) * in_usd_per_1m + float(ct or 0) * out_usd_per_1m) / 1_000_000.0 if pt is not None or ct is not None else 0.0
-    print(f"${cost_val:.4f}")
+    in_price, out_price = MODEL_PRICES_USD_PER_1M.get(model_code, (DEFAULT_FALLBACK_INPUT_USD_PER_1M, DEFAULT_FALLBACK_OUTPUT_USD_PER_1M))
+    pt = usage.get("prompt_tokens") or 0
+    ct = usage.get("completion_tokens") or 0
+    if pt or ct:
+        cost = (float(pt) * in_price + float(ct) * out_price) / 1_000_000
+        print(f"${cost:.4f}")
     if repo is None:
         print("[yellow]Not a git repository; skipping commit[/yellow]")
         return
@@ -491,22 +472,18 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     model_code = get_model_code(prompt_config)
 
     includes = resolve_included_files(prompt_config)
-    structural_section = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
-    input_section = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+    structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
+    input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
 
-    summaries_parts = list(
-        filter(
-            None,
-            [
-                f"STRUCTURAL_LEVEL_FILES:\n{structural_section}" if structural_section else "",
-                f"INPUT_LEVEL_FILES:\n{input_section}" if input_section else "",
-            ],
-        )
-    )
-    summaries_blob = "\n\n".join(summaries_parts)
-    summaries_chunk = f"\n\nFILE SUMMARIES (YAML):\n{summaries_blob}" if summaries_blob else ""
+    summaries = "\n\n".join(filter(None, [
+        f"STRUCTURAL_LEVEL_FILES:\n{structural}" if structural else "",
+        f"INPUT_LEVEL_FILES:\n{input_lvl}" if input_lvl else "",
+    ]))
 
-    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}{summaries_chunk}\n\nSOURCE MATERIAL:\n{source_text}"
+    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}"
+    if summaries:
+        prompt_content += f"\n\nFILE SUMMARIES (YAML):\n{summaries}"
+    prompt_content += f"\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
         "model": model_code,
@@ -519,30 +496,23 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     if schema:
         payload["response_format"] = {
             "type": "json_schema",
-            "json_schema": {
-                "name": "response_schema",
-                "strict": True,
-                "schema": schema,
-            },
+            "json_schema": {"name": "response_schema", "strict": True, "schema": schema},
         }
     return payload
 
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
-    usage = dict_get(api_json, "usage")
-    prompt_tokens = coerce_int(dict_get(usage, "prompt_tokens"))
-    completion_tokens = coerce_int(dict_get(usage, "completion_tokens"))
-    total_tokens = coerce_int(dict_get(usage, "total_tokens"))
-
-    header_map = dict(map(lambda kv: (str(kv[0]).lower(), kv[1]), (response_headers or {}).items()))
-    prompt_tokens = prompt_tokens or coerce_int(header_map.get("x-openai-prompt-tokens"))
-    completion_tokens = completion_tokens or coerce_int(header_map.get("x-openai-completion-tokens"))
-    total_tokens = total_tokens or coerce_int(header_map.get("x-openai-total-tokens"))
-
-    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
-        total_tokens = prompt_tokens + completion_tokens
-
-    return {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
+    usage = dict_get(api_json, "usage") or {}
+    header_map = {str(k).lower(): v for k, v in (response_headers or {}).items()}
+    
+    def get_token(key: str, header_key: str) -> int | None:
+        return coerce_int(usage.get(key)) or coerce_int(header_map.get(header_key))
+    
+    prompt = get_token("prompt_tokens", "x-openai-prompt-tokens")
+    completion = get_token("completion_tokens", "x-openai-completion-tokens")
+    total = get_token("total_tokens", "x-openai-total-tokens") or (prompt + completion if prompt and completion else None)
+    
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
 
 
 
@@ -626,59 +596,30 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
 
 
-def guess_syntax_lexer_name(text: str) -> str:
+def guess_lexer(text: str = "", filename: str | None = None) -> str:
+    if filename:
+        ext = Path(filename).suffix.lower()
+        mapping = {
+            ".py": "python", ".json": "json", ".json5": "json",
+            ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+            ".diff": "diff", ".patch": "diff", ".toml": "toml",
+            ".ini": "ini", ".cfg": "ini", ".txt": "text",
+            ".sh": "bash", ".bash": "bash", ".zsh": "bash",
+            ".js": "javascript", ".jsx": "jsx", ".ts": "typescript",
+            ".tsx": "tsx", ".html": "html", ".htm": "html",
+            ".css": "css", ".scss": "scss", ".sql": "sql", ".xml": "xml",
+        }
+        if ext in mapping:
+            return mapping[ext]
+    
     sample = "\n".join(text.splitlines()[:50]).lower()
-
-    looks_like_diff = sample.startswith("diff ") or sample.startswith("---") or sample.startswith("+++") or " @@" in sample
-    if looks_like_diff:
+    if sample.startswith(("diff ", "---", "+++")) or " @@" in sample:
         return "diff"
-
-    looks_like_json = sample.startswith("{") or sample.startswith("[")
-    if looks_like_json:
+    if sample.startswith(("{", "[")):
         return "json"
-
-    looks_like_python = "def " in sample or "import " in sample or "class " in sample
-    if looks_like_python:
+    if any(kw in sample for kw in ("def ", "import ", "class ")):
         return "python"
-
     return "text"
-
-
-def guess_syntax_lexer_name_from_filename(filename: str | None) -> str | None:
-    name = as_non_empty_str(filename)
-    if not name:
-        return None
-
-    suffix = Path(name).suffix.lower()
-    ext_map = {
-        ".py": "python",
-        ".json": "json",
-        ".json5": "json",
-        ".yaml": "yaml",
-        ".yml": "yaml",
-        ".md": "markdown",
-        ".diff": "diff",
-        ".patch": "diff",
-        ".toml": "toml",
-        ".ini": "ini",
-        ".cfg": "ini",
-        ".txt": "text",
-        ".sh": "bash",
-        ".bash": "bash",
-        ".zsh": "bash",
-        ".js": "javascript",
-        ".jsx": "jsx",
-        ".ts": "typescript",
-        ".tsx": "tsx",
-        ".html": "html",
-        ".htm": "html",
-        ".css": "css",
-        ".scss": "scss",
-        ".sql": "sql",
-        ".xml": "xml",
-    }
-
-    return ext_map.get(suffix)
 
 
 def syntax_text(body: str, *, lexer_name: str) -> Text:
@@ -695,45 +636,32 @@ def syntax_text(body: str, *, lexer_name: str) -> Text:
 
 
 def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
-    if not (line.startswith("@@") or line.startswith(" @@")):
+    if not line.startswith("@@"):
         return None
-
-    s = line.strip()
-    if not (s.startswith("@@") and "@@" in s[2:]):
+    parts = line.split("@@")
+    if len(parts) < 3:
         return None
-
-    end = s.find("@@", 2)
-    if end < 0:
+    ranges = parts[1].strip().split()
+    if len(ranges) < 2:
         return None
-
-    inner = s[2:end].strip()
-    parts = list(filter(None, inner.split(" ")))
-    if len(parts) < 2:
-        return None
-
-    old_part = parts[0]
-    new_part = parts[1]
-    if not (old_part.startswith("-") and new_part.startswith("+")):
-        return None
-
+    
     def parse_range(p: str) -> tuple[int, int] | None:
+        if not p or p[0] not in "-+":
+            return None
         core = p[1:]
         if "," in core:
             a, b = core.split(",", 1)
-            a_i = coerce_int(a)
-            b_i = coerce_int(b)
-            return (a_i, b_i) if a_i is not None and b_i is not None else None
-        a_i = coerce_int(core)
-        return (a_i, 1) if a_i is not None else None
-
-    old_r = parse_range(old_part)
-    new_r = parse_range(new_part)
-    if old_r is None or new_r is None:
+            ai = coerce_int(a)
+            bi = coerce_int(b)
+            return (ai, bi) if ai is not None and bi is not None else None
+        val = coerce_int(core)
+        return (val, 1) if val is not None else None
+    
+    old = parse_range(ranges[0])
+    new = parse_range(ranges[1])
+    if not old or not new:
         return None
-
-    old_start, old_len = old_r
-    new_start, new_len = new_r
-    return (old_start, old_len, new_start, new_len)
+    return (old[0], old[1], new[0], new[1])
 
 
 def format_combined_diff_lines(
@@ -747,53 +675,46 @@ def format_combined_diff_lines(
     old_lines = old_text.splitlines(keepends=False)
     new_lines = new_text.splitlines(keepends=False)
     diff_lines = list(difflib.unified_diff(old_lines, new_lines, fromfile="a", tofile="b", lineterm="", n=context_lines))
+    
+    if not diff_lines:
+        return []
+
+    file_lexer = guess_lexer(filename=filename)
+    old_lexer = lexer_name or file_lexer or guess_lexer(text=old_text)
+    new_lexer = lexer_name or file_lexer or guess_lexer(text=new_text)
+
+    def make_line(left_ln: int | None, style: str | None, mid: str, body: str, lexer: str) -> Text:
+        num = styled_line_number(left_ln, style=style)
+        return num + Text(mid) + syntax_text(body, lexer_name=lexer)
 
     out: list[tuple[str, Text]] = []
-
-    filename_lexer = guess_syntax_lexer_name_from_filename(filename)
-    old_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(old_text)
-    new_lexer = lexer_name or filename_lexer or guess_syntax_lexer_name(new_text)
-
-    def push(kind: str, line: Text):
-        out.append((kind, line[:-1]))
-
-    def numbered_line(left_ln: int | None, *, left_style: str | None, mid: str, body: str, lexer: str) -> Text:
-        return styled_line_number(left_ln, style=left_style) + Text(mid) + syntax_text(body, lexer_name=lexer)
-
     old_ln = 1
     new_ln = 1
 
     for line in diff_lines:
-        if line.startswith("---") or line.startswith("+++") or not line:
+        if not line or line.startswith(("---", "+++")):
             continue
-
-        if line.startswith("@@") or line.startswith(" @@"):
+        if line.startswith("@@"):
             parsed = parse_unified_hunk_header(line)
-            if parsed is not None:
-                old_ln = parsed[0]
-                new_ln = parsed[2]
+            if parsed:
+                old_ln, new_ln = parsed[0], parsed[2]
             continue
-
+        
         prefix = line[:1]
         body = line[1:]
-
+        
         if prefix == " ":
-            push("context", numbered_line(old_ln, left_style=None, mid="   ", body=body, lexer=old_lexer))
+            out.append(("context", make_line(old_ln, None, "   ", body, old_lexer)[:-1]))
             old_ln += 1
             new_ln += 1
-            continue
-
-        if prefix == "-":
-            push("delete", numbered_line(old_ln, left_style="bright_red on dark_red", mid=" - ", body=body, lexer=old_lexer))
+        elif prefix == "-":
+            out.append(("delete", make_line(old_ln, "bright_red on dark_red", " - ", body, old_lexer)[:-1]))
             old_ln += 1
-            continue
-
-        if prefix == "+":
-            push("insert", numbered_line(new_ln, left_style="bright_green on dark_green", mid=" + ", body=body, lexer=new_lexer))
+        elif prefix == "+":
+            out.append(("insert", make_line(new_ln, "bright_green on dark_green", " + ", body, new_lexer)[:-1]))
             new_ln += 1
-            continue
-
-        push("header", Text(line))
+        else:
+            out.append(("header", Text(line)[:-1]))
 
     return out
 
@@ -854,23 +775,17 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
 def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
     base_dir = base_dir or Path.cwd()
 
-    def fields(i: int, r: dict) -> tuple[str, str, str] | None:
+    def apply_single(i: int, r: dict) -> Path | None:
         filename = dict_get(r, "filename")
         old_string = dict_get(r, "old_string")
         new_string = dict_get(r, "new_string")
+        
         if not filename:
             print(f"[red]Replacement #{i} missing filename; skipping[/red]")
             return None
         if old_string is None or new_string is None:
             print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
             return None
-        return (filename, old_string, new_string)
-
-    def apply_one(i: int, r: dict) -> Path | None:
-        f = fields(i, r)
-        if f is None:
-            return None
-        filename, old_string, new_string = f
 
         target_path = (base_dir / filename).resolve()
         original = read_text_or_none(target_path) if target_path.exists() else None
@@ -885,11 +800,10 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
             print(f"[red]Target file not found: {target_path}[/red]")
             return None
 
-        updated, _matched_old = apply_one_replacement(original, old_string, new_string)
+        updated, _ = apply_one_replacement(original, old_string, new_string)
         if updated is None:
             print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
             return None
-
         if updated == original:
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
             return None
@@ -898,7 +812,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
         target_path.write_text(updated, encoding="utf-8")
         return target_path
 
-    return list(filter(None, (apply_one(i, r) for i, r in enumerate(replacements or []))))
+    return list(filter(None, (apply_single(i, r) for i, r in enumerate(replacements or []))))
 
 
 
@@ -917,55 +831,48 @@ def repo_from_dir(base_dir: Path) -> git.Repo | None:
 
 def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
     repo_root = Path(repo.working_tree_dir or ".").resolve()
-    relpaths = list(map(lambda p: str(p.resolve().relative_to(repo_root)), changed_files))
-    relpaths = list(filter(lambda s: bool(s and s.strip()), relpaths))
-
+    relpaths = [str(p.resolve().relative_to(repo_root)) for p in changed_files if p]
     if not relpaths:
         return None
-
     repo.index.add(relpaths)
     repo.index.commit(message)
     return message
 
 
-def undo_last_commit(base_dir: Path) -> int:
+def require_valid_repo(base_dir: Path) -> git.Repo | None:
     repo = repo_from_dir(base_dir)
     if repo is None:
         print("Not a git repository")
-        return 1
-
+        return None
     if not repo.head.is_valid():
-        print("No commits to undo")
-        return 1
+        print("No valid commits")
+        return None
+    return repo
 
+
+def undo_last_commit(base_dir: Path) -> int:
+    repo = require_valid_repo(base_dir)
+    if repo is None:
+        return 1
     if not repo.head.commit.parents:
         print("No parent commit to reset to")
         return 1
-
     repo.git.reset("--hard", "HEAD~1")
     return 0
 
 
 def redo_last_commit(base_dir: Path) -> int:
-    repo = repo_from_dir(base_dir)
+    repo = require_valid_repo(base_dir)
     if repo is None:
-        print("Not a git repository")
         return 1
-
-    if not repo.head.is_valid():
-        print("No commits to redo")
-        return 1
-
-    if not (Path(repo.git_dir) / "ORIG_HEAD").exists():
+    orig_path = Path(repo.git_dir) / "ORIG_HEAD"
+    if not orig_path.exists():
         print("No ORIG_HEAD found to redo to")
         return 1
-
     orig_head = repo.commit("ORIG_HEAD")
-
     if orig_head.hexsha == repo.head.commit.hexsha:
         print("Already at the most recent commit")
         return 0
-
     repo.git.reset("--hard", orig_head.hexsha)
     return 0
 
