@@ -548,18 +548,29 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
 
     return_code = process.wait()
 
-    if return_code == 0:
-        return 0
-
-    full_output = b''.join(output_lines).decode('utf-8', errors='replace')
-    error_message = f"Build failed with exit code {return_code}\n{full_output}"
-
     yaml_inst = YAML()
     yaml_inst.default_flow_style = False
     yaml_inst.allow_unicode = True
     yaml_inst.width = float('inf')
     with open(config_path, 'r', encoding='utf-8') as f:
         existing_config = yaml_inst.load(f) or {}
+
+    if return_code == 0:
+        success_message = "Build completed successfully"
+        if 'success' in existing_config:
+            existing_config['success'] = success_message
+        elif hasattr(existing_config, 'insert') and 'build' in existing_config:
+            keys = list(existing_config.keys())
+            existing_config.insert(keys.index('build') + 1, 'success', success_message)
+        else:
+            existing_config['success'] = success_message
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml_inst.dump(existing_config, f)
+        return 0
+
+    full_output = b''.join(output_lines).decode('utf-8', errors='replace')
+    error_message = f"Build failed with exit code {return_code}\n{full_output}"
+
     if 'error' in existing_config:
         existing_config['error'] = error_message
     elif hasattr(existing_config, 'insert') and 'build' in existing_config:
@@ -639,6 +650,7 @@ def guess_lexer(text: str = "", filename: str | None = None, language: str | Non
         ext = Path(filename).suffix.lower()
         mapping = {
             ".py": "python", ".json": "json", ".json5": "json",
+            ".go": "go",
             ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
             ".diff": "diff", ".patch": "diff", ".toml": "toml",
             ".ini": "ini", ".cfg": "ini", ".txt": "text",
