@@ -425,9 +425,7 @@ def main(
         print("[yellow]No files changed; skipping commit[/yellow]")
         return
 
-    committed_message = stage_and_commit(repo, changed_files, commit_message)
-    if committed_message:
-        print(f"\n[green]Committed changes:[/green] {committed_message}")
+    stage_and_commit(repo, changed_files, commit_message)
 
 
 def get_model_code(config: dict) -> str:
