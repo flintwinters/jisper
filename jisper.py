@@ -395,11 +395,12 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response, usage, model_code = run(config_path, routine)
+    response, usage, model_code, config = run(config_path, routine)
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
     changed_files = apply_replacements(replacements)
+    run_build_step(config, config_path)
 
     edit_data = (response or {}).get("edit", {}) or {}
     commit_message = as_non_empty_str(response.get("commit_message")) or as_non_empty_str(edit_data.get("commit_message")) or "Apply model edits"
@@ -517,21 +518,43 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
 
 
 
-def run_build_step(config: dict) -> int | None:
+def run_build_step(config: dict, config_path: Path) -> int | None:
     build_cmd = config.get("build")
     if not build_cmd:
         return None
 
-    result = subprocess.run(build_cmd, shell=True, capture_output=True, text=True, cwd=Path.cwd())
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr, file=sys.stderr)
-    if result.returncode == 0:
+    process = subprocess.Popen(
+        build_cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        cwd=Path.cwd()
+    )
+
+    output_lines = []
+    if process.stdout:
+        for line in iter(process.stdout.readline, b''):
+            if line:
+                sys.stdout.buffer.write(line)
+                sys.stdout.flush()
+                output_lines.append(line)
+        process.stdout.close()
+
+    return_code = process.wait()
+
+    if return_code == 0:
         return 0
 
-    print(f"[red]Build failed with exit code {result.returncode}[/red]")
-    return result.returncode
+    full_output = b''.join(output_lines).decode('utf-8', errors='replace')
+    error_message = f"Build failed with exit code {return_code}\n{full_output}"
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        existing_config = yaml.safe_load(f) or {}
+    existing_config['error'] = error_message
+    with open(config_path, 'w', encoding='utf-8') as f:
+        yaml.dump(existing_config, f, sort_keys=False, allow_unicode=True)
+
+    return return_code
 
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
@@ -545,10 +568,6 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         if available:
             print(f"[yellow]Available routines:[/yellow] {available}")
         raise typer.Exit(code=2)
-
-    build_code = run_build_step(config)
-    if isinstance(build_code, int) and build_code != 0:
-        raise typer.Exit(code=build_code)
 
     endpoint_url = as_non_empty_str(dict_get(config, "endpoint")) or DEFAULT_URL
     api_key_env_var = as_non_empty_str(dict_get(config, "api_key_env_var")) or DEFAULT_API_KEY_ENV_VAR
@@ -588,7 +607,7 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
 
     choices = api_json.get("choices")
     if choices:
-        return (json.loads(choices[0]["message"]["content"]), usage, model_code)
+        return (json.loads(choices[0]["message"]["content"]), usage, model_code, config)
     print("[red]API formatting error[/red]")
     print(api_json)
     exit(1)
