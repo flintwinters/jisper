@@ -403,18 +403,20 @@ def main(
     replacements = edits.get("replacements", [])
     language = as_non_empty_str(config.get("language"))
     changed_files = apply_replacements(replacements, language=language)
-    run_build_step(config, config_path)
 
     edit_data = (response or {}).get("edit", {}) or {}
     commit_message = as_non_empty_str(response.get("commit_message")) or as_non_empty_str(edit_data.get("commit_message")) or "Apply model edits"
+    print(f"\n[green]Commit message:[/green] {commit_message}")
 
-    repo = repo_from_dir(Path.cwd())
+    run_build_step(config, config_path)
+
     in_price, out_price = MODEL_PRICES_USD_PER_1M.get(model_code, (DEFAULT_FALLBACK_INPUT_USD_PER_1M, DEFAULT_FALLBACK_OUTPUT_USD_PER_1M))
     pt = usage.get("prompt_tokens") or 0
     ct = usage.get("completion_tokens") or 0
     if pt or ct:
         cost = (float(pt) * in_price + float(ct) * out_price) / 1_000_000
         print(f"${cost:.4f}")
+    repo = repo_from_dir(Path.cwd())
     if repo is None:
         print("[yellow]Not a git repository; skipping commit[/yellow]")
         return
