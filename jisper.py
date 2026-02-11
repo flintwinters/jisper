@@ -263,6 +263,7 @@ def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
 
 
 def resolve_included_files(config: dict) -> dict:
+    # Determine which files to include as source material based on config lists
     base_dir = Path.cwd()
     full_raw = as_list_of_non_empty_str(dict_get(config, "full_files"))
     structural_raw = as_list_of_non_empty_str(dict_get(config, "structural_level_files"))
@@ -466,6 +467,7 @@ def read_and_concatenate_files(file_list):
 
 
 def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None, *, endpoint_url: str):
+    # Assemble the chat completions payload with system/user messages and optional JSON schema
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
@@ -558,6 +560,7 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
 
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
+    # Execute the full pipeline: load config, call LLM, parse response, return edits and usage
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
@@ -792,6 +795,7 @@ def apply_one_replacement(original: str, old_string: str, new_string: str) -> tu
 
 
 def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]:
+    # Apply model-generated string replacements to disk with diff preview
     base_dir = base_dir or Path.cwd()
 
     def apply_single(i: int, r: dict) -> Path | None:
@@ -836,6 +840,7 @@ def apply_replacements(replacements, base_dir: Path | None = None) -> list[Path]
 
 
 def repo_from_dir(base_dir: Path) -> git.Repo | None:
+    # Walk upward from base_dir to find the nearest git repository
     if (base_dir / ".git").exists():
         return git.Repo(base_dir)
 
