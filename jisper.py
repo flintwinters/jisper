@@ -96,6 +96,7 @@ import re
 import sys
 
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import LiteralScalarString
 from rich import print
 from rich.console import Console
 from rich.text import Text
@@ -567,16 +568,17 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
         return 0
 
     error_message = f"Build failed with exit code {return_code}\n{sanitized_output}"
+    error_literal = LiteralScalarString(error_message)
 
     if "success" in existing_config:
         del existing_config["success"]
     if "error" in existing_config:
-        existing_config["error"] = error_message
+        existing_config["error"] = error_literal
     elif hasattr(existing_config, "insert") and "build" in existing_config:
         keys = list(existing_config.keys())
-        existing_config.insert(keys.index("build") + 1, "error", error_message)
+        existing_config.insert(keys.index("build") + 1, "error", error_literal)
     else:
-        existing_config["error"] = error_message
+        existing_config["error"] = error_literal
     with open(config_path, "w", encoding="utf-8") as f:
         yaml_inst.dump(existing_config, f)
 
@@ -642,7 +644,33 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
     exit(1)
 
 
+def guess_lexer(text: str = "", filename: str | None = None, language: str | None = None) -> str:
+    if language:
+        return language
+    if filename:
+        ext = Path(filename).suffix.lower()
+        mapping = {
+            ".py": "python", ".json": "json", ".json5": "json",
+            ".go": "go",
+            ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+            ".diff": "diff", ".patch": "diff", ".toml": "toml",
+            ".ini": "ini", ".cfg": "ini", ".txt": "text",
+            ".sh": "bash", ".bash": "bash", ".zsh": "bash",
+            ".js": "javascript", ".jsx": "jsx", ".ts": "typescript",
+            ".tsx": "tsx", ".html": "html", ".htm": "html",
+            ".css": "css", ".scss": "scss", ".sql": "sql", ".xml": "xml",
+        }
+        if ext in mapping:
+            return mapping[ext]
 
+    sample = "\n".join(text.splitlines()[:50]).lower()
+    if sample.startswith(("diff ", "---", "+++")) or " @@" in sample:
+        return "diff"
+    if sample.startswith(("{", "[")):
+        return "json"
+    if any(kw in sample for kw in ("def ", "import ", "class ")):
+        return "python"
+    return "text"
 
 def strip_json_code_fence(s: str) -> str:
     t = s.strip()
