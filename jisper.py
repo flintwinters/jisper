@@ -192,14 +192,8 @@ def coerce_int(v) -> int | None:
         return int(s) if s.isdigit() else None
     return None
 
-
-
 def read_text_or_none(path: Path) -> str | None:
     return path.read_text(encoding="utf-8") if path.exists() else None
-
-
-
-
 
 def resolve_routine_task(config: dict, routine_name: str | None) -> str | None:
     name = as_non_empty_str(routine_name)
@@ -420,8 +414,8 @@ def main(
         print(f"${cost:.4f}")
     repo = repo_from_dir(Path.cwd())
     if repo is None:
-        print("[yellow]Not a git repository; skipping commit[/yellow]")
-        return
+        repo = git.Repo.init(Path.cwd())
+        print(f"[green]Initialized empty Git repository in {Path.cwd()}/.git[/green]")
 
     if not changed_files:
         print("[yellow]No files changed; skipping commit[/yellow]")
@@ -433,20 +427,12 @@ def main(
 def get_model_code(config: dict) -> str:
     return as_non_empty_str(dict_get(config, "model")) or DEFAULT_MODEL
 
-
-
-
-
-
-
 def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
     s = f"{ln:>{width}}" if ln is not None else " " * width
     t = Text(s)
     if style and ln is not None:
         t.stylize(style, 0, len(s))
     return t
-
-
 
 def load_prompt_file(path: Path) -> dict:
     suffix = (path.suffix or "").lower()
@@ -474,9 +460,11 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     # Assemble the chat completions payload with system/user messages and optional JSON schema
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
-    project_prompt = as_non_empty_str(prompt_config.get("project_prompt"))
+    project_prompt = as_non_empty_str(prompt_config.get("project"))
     system_prompt = f"{system_prompt}\n\n{project_prompt}" if project_prompt else system_prompt
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
+    if '[error]' in user_task:
+        user_task = user_task.replace('[error]', prompt_config.get("error"))
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
