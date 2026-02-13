@@ -552,7 +552,13 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     while readable:
         ready, _, _ = select.select(readable, [], [], 0.1)
         for fd in ready:
-            data = os.read(fd, 1024)
+            try:
+                data = os.read(fd, 1024)
+            except OSError as e:
+                if e.errno == 5:
+                    data = b""
+                else:
+                    raise
             if data:
                 if fd == stdout_fd:
                     stdout_chunks.append(data)
