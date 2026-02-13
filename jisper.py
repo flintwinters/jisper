@@ -444,9 +444,11 @@ def load_prompt_file(path: Path) -> dict:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def read_and_concatenate_files(file_list):
+def read_and_concatenate_files(file_list, *, base_dir: Path | None = None):
+    base_dir = base_dir or Path.cwd()
+
     def one(filename: str) -> str | None:
-        p = Path(filename)
+        p = (base_dir / filename).resolve()
         txt = read_text_or_none(p)
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
@@ -456,8 +458,23 @@ def read_and_concatenate_files(file_list):
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
 
+def build_source_material(prompt_config: dict, *, base_dir: Path | None = None) -> str:
+    base_dir = base_dir or Path.cwd()
+    includes = resolve_included_files(prompt_config)
+
+    full_text = read_and_concatenate_files(includes["full_files"], base_dir=base_dir).strip()
+    structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
+    input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+
+    parts = list(filter(None, [
+        full_text or None,
+        f"STRUCTURAL_LEVEL_FILES (SUMMARIES ONLY):\n{structural}" if structural else None,
+        f"INPUT_LEVEL_FILES (SUMMARIES ONLY):\n{input_lvl}" if input_lvl else None,
+    ]))
+    return "\n\n".join(parts).strip()
+
+
 def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None, *, endpoint_url: str):
-    # Assemble the chat completions payload with system/user messages and optional JSON schema
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     project_prompt = as_non_empty_str(prompt_config.get("project"))
@@ -468,18 +485,7 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
-    includes = resolve_included_files(prompt_config)
-    structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
-    input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
-
-    summaries = "\n\n".join(filter(None, [
-        f"STRUCTURAL_LEVEL_FILES:\n{structural}" if structural else "",
-        f"INPUT_LEVEL_FILES:\n{input_lvl}" if input_lvl else "",
-    ]))
-
     prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}"
-    if summaries:
-        prompt_content += f"\n\nFILE SUMMARIES (YAML):\n{summaries}"
     prompt_content += f"\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
@@ -627,7 +633,6 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
 
 
 def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
-    # Execute the full pipeline: load config, call LLM, parse response, return edits and usage
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
@@ -645,15 +650,14 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         api_key_env_var = "OPENROUTER_API_KEY"
     api_key = as_non_empty_str(os.getenv(api_key_env_var or ""))
 
-    includes = resolve_included_files(config)
-    concatenated_text = read_and_concatenate_files(includes["source_files"])
+    source_material = build_source_material(config, base_dir=Path.cwd())
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
         "Content-Type": "application/json",
     }
 
-    payload = build_payload(config, concatenated_text, routine_name, endpoint_url=endpoint_url)
+    payload = build_payload(config, source_material, routine_name, endpoint_url=endpoint_url)
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
