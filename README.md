@@ -23,10 +23,10 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
                      │ input levels)│     │  Files       │     │  blocks)     │
                      └──────────────┘     └──────────────┘     └──────┬───────┘
                                                                       │
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────┴───────┐
-│   Git Commit │◀───│   Stage      │◀───│   Apply      │◀───│  Build       │
-│              │     │   Changes    │     │ Replacements │     │  Payload     │
-└──────────────┘     └──────────────┘     └──────────────┘     │(system+task+ │
+                     ┌──────────────┐     ┌──────────────┐     ┌──────┴───────┐
+                     │   Git Commit │◀───│   Apply      │◀───│  Build       │
+                     │              │     │ Replacements │     │  Payload     │
+                     └──────────────┘     └──────────────┘     │(system+task+ │
                                                                │ source)      │
                                                                └──────────────┘
 ```
