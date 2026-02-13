@@ -17,29 +17,17 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Load Config │────▶│ Resolve      │────▶│  Read and    │────▶│  Extract     │
+│  Load Config │───▶│ Resolve      │───▶│  Read and    │───▶│  Extract     │
 │(YAML/JSON5)  │     │ File Lists   │     │  Concatenate │     │  Summaries   │
 └──────────────┘     │(full/struct/ │     │  Source      │     │([FILE SUMMARY│
                      │ input levels)│     │  Files       │     │  blocks)     │
                      └──────────────┘     └──────────────┘     └──────┬───────┘
                                                                       │
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────┴───────┐
-│   Git Commit │◀────│   Stage      │◀────│   Apply      │◀────│  Build       │
+│   Git Commit │◀───│   Stage      │◀───│   Apply      │◀───│  Build       │
 │              │     │   Changes    │     │ Replacements │     │  Payload     │
-└──────────────┘     └──────────────┘     │(with preview)│     │(system+task+ │
-                                          └──────────────┘     │ source)      │
-                                                               └──────┬───────┘
-                                                                      │
-                                                               ┌──────┴───────┐
-                                                               │   Call LLM   │
-                                                               │   (OpenAI/   │
-                                                               │ Google/etc)  │
-                                                               └──────┬───────┘
-                                                                      │
-                                                               ┌──────┴───────┐
-                                                               │ Parse JSON   │
-                                                               │(replacements │
-                                                               │  array)      │
+└──────────────┘     └──────────────┘     └──────────────┘     │(system+task+ │
+                                                               │ source)      │
                                                                └──────────────┘
 ```
 
