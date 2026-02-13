@@ -519,20 +519,61 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     if not build_cmd:
         return None
 
-    output_chunks: list[bytes] = []
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
 
     def master_read(fd: int) -> bytes:
         data = os.read(fd, 1024)
         if data:
-            output_chunks.append(data)
+            stdout_chunks.append(data)
         return data
 
-    status = pty.spawn(["/bin/sh", "-c", build_cmd], master_read)
-    return_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else status
+    def stderr_read(fd: int) -> bytes:
+        data = os.read(fd, 1024)
+        if data:
+            stderr_chunks.append(data)
+        return data
 
-    full_output = b"".join(output_chunks).decode("utf-8", errors="replace")
-    ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-    sanitized_output = ansi_escape.sub("", full_output)
+    stdout_fd, stdout_slave = pty.openpty()
+    stderr_fd, stderr_slave = pty.openpty()
+
+    import subprocess
+    proc = subprocess.Popen(
+        ["/bin/sh", "-c", build_cmd],
+        stdout=stdout_slave,
+        stderr=stderr_slave,
+        close_fds=True,
+    )
+    os.close(stdout_slave)
+    os.close(stderr_slave)
+
+    import select
+    readable = [stdout_fd, stderr_fd]
+    while readable:
+        ready, _, _ = select.select(readable, [], [], 0.1)
+        for fd in ready:
+            data = os.read(fd, 1024)
+            if data:
+                if fd == stdout_fd:
+                    stdout_chunks.append(data)
+                else:
+                    stderr_chunks.append(data)
+            else:
+                readable.remove(fd)
+
+    proc.wait()
+    return_code = proc.returncode
+
+    os.close(stdout_fd)
+    os.close(stderr_fd)
+
+    def sanitize_output(chunks: list[bytes]) -> str:
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
+        ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", raw)
+
+    stdout_str = sanitize_output(stdout_chunks)
+    stderr_str = sanitize_output(stderr_chunks)
 
     yaml_inst = YAML()
     yaml_inst.default_flow_style = False
@@ -544,6 +585,10 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     if return_code == 0:
         if "error" in existing_config:
             del existing_config["error"]
+        if "build_stdout" in existing_config:
+            del existing_config["build_stdout"]
+        if "build_stderr" in existing_config:
+            del existing_config["build_stderr"]
         if "success" in existing_config:
             existing_config["success"] = True
         elif hasattr(existing_config, "insert") and "build" in existing_config:
@@ -555,18 +600,20 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
             yaml_inst.dump(existing_config, f)
         return 0
 
-    error_message = f"Build failed with exit code {return_code}\n{sanitized_output}"
-    error_literal = LiteralScalarString(error_message)
-
     if "success" in existing_config:
         del existing_config["success"]
     if "error" in existing_config:
-        existing_config["error"] = error_literal
-    elif hasattr(existing_config, "insert") and "build" in existing_config:
-        keys = list(existing_config.keys())
-        existing_config.insert(keys.index("build") + 1, "error", error_literal)
-    else:
-        existing_config["error"] = error_literal
+        del existing_config["error"]
+    if "build_stdout" in existing_config:
+        del existing_config["build_stdout"]
+    if "build_stderr" in existing_config:
+        del existing_config["build_stderr"]
+
+    if stdout_str:
+        existing_config["build_stdout"] = LiteralScalarString(stdout_str)
+    if stderr_str:
+        existing_config["build_stderr"] = LiteralScalarString(stderr_str)
+
     with open(config_path, "w", encoding="utf-8") as f:
         yaml_inst.dump(existing_config, f)
 
