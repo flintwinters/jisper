@@ -260,18 +260,21 @@ def resolve_paths_and_globs(values: list[str], *, base_dir: Path) -> list[str]:
 
 
 def resolve_included_files(config: dict) -> dict:
-    # Determine which files to include as source material based on config lists
     base_dir = Path.cwd()
     full_raw = as_list_of_non_empty_str(dict_get(config, "full_files"))
     structural_raw = as_list_of_non_empty_str(dict_get(config, "structural_level_files"))
     input_raw = as_list_of_non_empty_str(dict_get(config, "input_level_files"))
 
-    input_level_files = resolve_paths_and_globs(input_raw, base_dir=base_dir)
-    structural_level_files = resolve_paths_and_globs(structural_raw, base_dir=base_dir)
-    lower_level_set = set(input_level_files + structural_level_files)
-
     full_files = resolve_paths_and_globs(full_raw, base_dir=base_dir)
-    full_files = list(filter(lambda s: s not in lower_level_set, full_files or []))
+    structural_level_files = resolve_paths_and_globs(structural_raw, base_dir=base_dir)
+    input_level_files = resolve_paths_and_globs(input_raw, base_dir=base_dir)
+
+    full_set = set(full_files)
+    structural_level_files = list(filter(lambda s: s not in full_set, structural_level_files or []))
+    input_level_files = list(filter(lambda s: s not in full_set, input_level_files or []))
+
+    structural_set = set(structural_level_files)
+    input_level_files = list(filter(lambda s: s not in structural_set, input_level_files or []))
 
     source_files = dedupe_keep_order(full_files + structural_level_files + input_level_files)
     return {
@@ -466,11 +469,16 @@ def build_source_material(prompt_config: dict, *, base_dir: Path | None = None) 
     structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
     input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
 
-    parts = list(filter(None, [
-        full_text or None,
-        f"STRUCTURAL_LEVEL_FILES (SUMMARIES ONLY):\n{structural}" if structural else None,
-        f"INPUT_LEVEL_FILES (SUMMARIES ONLY):\n{input_lvl}" if input_lvl else None,
-    ]))
+    parts = list(
+        filter(
+            None,
+            [
+                full_text or None,
+                f"STRUCTURAL_LEVEL_FILES (SUMMARIES ONLY):\n{structural}" if structural else None,
+                f"INPUT_LEVEL_FILES (SUMMARIES ONLY):\n{input_lvl}" if input_lvl else None,
+            ],
+        )
+    )
     return "\n\n".join(parts).strip()
 
 
