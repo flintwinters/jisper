@@ -482,19 +482,43 @@ def build_source_material(prompt_config: dict, *, base_dir: Path | None = None) 
     return "\n\n".join(parts).strip()
 
 
+def render_jinja_template(template_text: str, context: dict) -> str:
+    t = as_non_empty_str(template_text) or ""
+    if "{{" not in t and "{%" not in t and "{#" not in t:
+        return template_text
+    env = __import__("jinja2").Environment(autoescape=False, keep_trailing_newline=True)
+    template = env.from_string(template_text)
+    return template.render(**(context or {}))
+
+
+def build_jinja_context(prompt_config: dict, *, source_text: str, user_task: str, system_prompt: str) -> dict:
+    cfg = prompt_config if isinstance(prompt_config, dict) else {}
+    ctx = dict(cfg)
+    ctx["source_text"] = source_text
+    ctx["task"] = user_task
+    ctx["system_prompt"] = system_prompt
+    ctx["error_message"] = cfg.get("error")
+    ctx["build_stdout"] = cfg.get("build_stdout")
+    ctx["build_stderr"] = cfg.get("build_stderr")
+    ctx["success"] = cfg.get("success")
+    ctx["error"] = cfg.get("error")
+    return ctx
+
+
 def build_payload(prompt_config: dict, source_text: str, routine_name: str | None = None, *, endpoint_url: str):
     system_instruction = prompt_config.get("system_instruction", "You are a helpful assistant.")
     system_prompt = prompt_config["system_prompt"]
     project_prompt = as_non_empty_str(prompt_config.get("project"))
     system_prompt = f"{system_prompt}\n\n{project_prompt}" if project_prompt else system_prompt
     user_task = resolve_routine_task(prompt_config, routine_name) or prompt_config["task"]
-    if '[error]' in user_task:
-        user_task = user_task.replace('[error]', prompt_config.get("error"))
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
     prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}"
     prompt_content += f"\n\nSOURCE MATERIAL:\n{source_text}"
+
+    jinja_context = build_jinja_context(prompt_config, source_text=source_text, user_task=user_task, system_prompt=system_prompt)
+    prompt_content = render_jinja_template(prompt_content, jinja_context)
 
     payload = {
         "model": model_code,
@@ -524,6 +548,489 @@ def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> d
     total = get_token("total_tokens", "x-openai-total-tokens") or (prompt + completion if prompt and completion else None)
     
     return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+
+
+def run_build_step(config: dict, config_path: Path) -> int | None:
+    build_cmd = config.get("build")
+    if not build_cmd:
+        return None
+
+    print(f"\n[cyan]Build:[/cyan] {build_cmd}\n")
+
+    def strip_ansi(s: str) -> str:
+        ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", s)
+
+    def collapse_cr_updates(s: str) -> str:
+        lines = []
+        for line in s.split("\n"):
+            parts = line.split("\r")
+            lines.append(parts[-1] if parts else "")
+        return "\n".join(lines)
+
+    def sanitize_output(chunks: list[bytes]) -> str:
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
+        raw = raw.replace("\r\n", "\n")
+        raw = collapse_cr_updates(raw)
+        raw = strip_ansi(raw)
+        raw = "\n".join(filter(None, raw.split("\n")))
+        return raw + ("\n" if raw and not raw.endswith("\n") else "")
+
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+
+    stdout_fd, stdout_slave = pty.openpty()
+    stderr_fd, stderr_slave = pty.openpty()
+
+    proc = __import__("subprocess").Popen(
+        ["/bin/sh", "-c", build_cmd],
+        stdout=stdout_slave,
+        stderr=stderr_slave,
+        close_fds=True,
+    )
+    os.close(stdout_slave)
+    os.close(stderr_slave)
+
+    readable = [stdout_fd, stderr_fd]
+    while readable:
+        ready, _, _ = __import__("select").select(readable, [], [], 0.1)
+        for fd in ready:
+            data = None
+            eof = False
+            try:
+                data = os.read(fd, 1024)
+            except OSError as e:
+                eof = getattr(e, "errno", None) == 5
+
+            if eof:
+                readable.remove(fd)
+                continue
+
+            if data is None:
+                continue
+
+            if data:
+                if fd == stdout_fd:
+                    stdout_chunks.append(data)
+                    sys.stdout.write(data.decode("utf-8", errors="replace"))
+                    sys.stdout.flush()
+                else:
+                    stderr_chunks.append(data)
+                    sys.stderr.write(data.decode("utf-8", errors="replace"))
+                    sys.stderr.flush()
+            else:
+                readable.remove(fd)
+
+    proc.wait()
+    return_code = proc.returncode
+
+    os.close(stdout_fd)
+    os.close(stderr_fd)
+
+    stdout_str = sanitize_output(stdout_chunks)
+    stderr_str = sanitize_output(stderr_chunks)
+
+    yaml_inst = YAML()
+    yaml_inst.default_flow_style = False
+    yaml_inst.allow_unicode = True
+    yaml_inst.width = float("inf")
+    with open(config_path, "r", encoding="utf-8") as f:
+        existing_config = yaml_inst.load(f) or {}
+
+    if "build_stdout" in existing_config:
+        del existing_config["build_stdout"]
+    if "build_stderr" in existing_config:
+        del existing_config["build_stderr"]
+    if "success" in existing_config:
+        del existing_config["success"]
+    if "error" in existing_config:
+        del existing_config["error"]
+
+    if stdout_str:
+        existing_config["build_stdout"] = LiteralScalarString(stdout_str)
+    if stderr_str:
+        existing_config["build_stderr"] = LiteralScalarString(stderr_str)
+
+    if return_code == 0:
+        if hasattr(existing_config, "insert") and "build" in existing_config and "success" not in existing_config:
+            keys = list(existing_config.keys())
+            existing_config.insert(keys.index("build") + 1, "success", True)
+        else:
+            existing_config["success"] = True
+    else:
+        existing_config["error"] = f"build failed ({return_code})"
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml_inst.dump(existing_config, f)
+
+    return return_code
+
+
+def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
+    config = load_prompt_file(config_path)
+    routine_task = resolve_routine_task(config, routine_name)
+    if as_non_empty_str(routine_name) and not routine_task:
+        routines = dict_get(config, "routines")
+        routines = routines if isinstance(routines, dict) else {}
+        available = ", ".join(sorted(map(str, routines.keys())))
+        print(f"[red]Routine not found:[/red] {routine_name}")
+        if available:
+            print(f"[yellow]Available routines:[/yellow] {available}")
+        raise typer.Exit(code=2)
+
+    endpoint_url = as_non_empty_str(dict_get(config, "endpoint")) or DEFAULT_URL
+    api_key_env_var = as_non_empty_str(dict_get(config, "api_key_env_var")) or DEFAULT_API_KEY_ENV_VAR
+    if "openrouter.ai" in endpoint_url and api_key_env_var == DEFAULT_API_KEY_ENV_VAR:
+        api_key_env_var = "OPENROUTER_API_KEY"
+    api_key = as_non_empty_str(os.getenv(api_key_env_var or ""))
+
+    source_material = build_source_material(config, base_dir=Path.cwd())
+
+    headers = {
+        "Authorization": f"Bearer {api_key or ''}",
+        "Content-Type": "application/json",
+    }
+
+    payload = build_payload(config, source_material, routine_name, endpoint_url=endpoint_url)
+
+    with console.status("Waiting for model...", spinner="dots"):
+        response = requests.post(endpoint_url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        print(endpoint_url, headers, payload)
+        if response.status_code == 401:
+            print("[red]API Error: Authentication failed (401 Unauthorized)[/red]")
+            print("\n[yellow]Please check the following:[/yellow]")
+            print(f"1. The API key environment variable is set correctly: [cyan]{api_key_env_var}[/cyan]")
+            print("2. The API key itself is valid.")
+            print(f"3. The endpoint URL is correct: [cyan]{endpoint_url}[/cyan]")
+        else:
+            print(f"[red]API Error: Received status code {response.status_code}[/red]")
+            print(response.text)
+        raise typer.Exit(code=1)
+
+    api_json = response.json()
+    model_code = get_model_code(config)
+    usage = extract_usage_from_api_response(api_json, dict(response.headers))
+
+    choices = api_json.get("choices")
+    if choices:
+        content = choices[0]["message"]["content"]
+        content = strip_json_code_fence(content) if isinstance(content, str) else content
+        return (json.loads(content), usage, model_code, config)
+    print("[red]API formatting error[/red]")
+    print(api_json)
+    exit(1)
+
+
+def guess_lexer(text: str = "", filename: str | None = None, language: str | None = None) -> str:
+    if language:
+        return language
+    if filename:
+        ext = Path(filename).suffix.lower()
+        mapping = {
+            ".py": "python", ".json": "json", ".json5": "json",
+            ".go": "go",
+            ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+            ".diff": "diff", ".patch": "diff", ".toml": "toml",
+            ".ini": "ini", ".cfg": "ini", ".txt": "text",
+            ".sh": "bash", ".bash": "bash", ".zsh": "bash",
+            ".js": "javascript", ".jsx": "jsx", ".ts": "typescript",
+            ".tsx": "tsx", ".html": "html", ".htm": "html",
+            ".css": "css", ".scss": "scss", ".sql": "sql", ".xml": "xml",
+        }
+        if ext in mapping:
+            return mapping[ext]
+
+    sample = "\n".join(text.splitlines()[:50]).lower()
+    if sample.startswith(("diff ", "---", "+++")) or " @@" in sample:
+        return "diff"
+    if sample.startswith(("{", "[")):
+        return "json"
+    if any(kw in sample for kw in ("def ", "import ", "class ")):
+        return "python"
+    return "text"
+
+def strip_json_code_fence(s: str) -> str:
+    t = s.strip()
+    if not t.startswith("```"):
+        return s
+    lines = t.splitlines()
+    if not lines:
+        return s
+    first = lines[0].strip().lower()
+    if first not in ("```json", "```"):
+        return s
+    if len(lines) < 2:
+        return s
+    if lines[-1].strip() != "```":
+        return s
+    inner = "\n".join(lines[1:-1])
+    return inner.strip() + "\n"
+
+
+
+def syntax_text(body: str, *, lexer_name: str) -> Text:
+    s = Syntax(
+        body,
+        lexer_name,
+        theme="ansi_dark",
+        line_numbers=False,
+        word_wrap=False,
+        code_width=0,
+        indent_guides=False,
+    )
+    return s.highlight(body)
+
+
+def parse_unified_hunk_header(line: str) -> tuple[int, int, int, int] | None:
+    if not line.startswith("@@"):
+        return None
+    parts = line.split("@@")
+    if len(parts) < 3:
+        return None
+    ranges = parts[1].strip().split()
+    if len(ranges) < 2:
+        return None
+    
+    def parse_range(p: str) -> tuple[int, int] | None:
+        if not p or p[0] not in "-+":
+            return None
+        core = p[1:]
+        if "," in core:
+            a, b = core.split(",", 1)
+            ai = coerce_int(a)
+            bi = coerce_int(b)
+            return (ai, bi) if ai is not None and bi is not None else None
+        val = coerce_int(core)
+        return (val, 1) if val is not None else None
+    
+    old = parse_range(ranges[0])
+    new = parse_range(ranges[1])
+    if not old or not new:
+        return None
+    return (old[0], old[1], new[0], new[1])
+
+
+def format_combined_diff_lines(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+) -> list[tuple[str, Text]]:
+    old_lines = old_text.splitlines(keepends=False)
+    new_lines = new_text.splitlines(keepends=False)
+    diff_lines = list(difflib.unified_diff(old_lines, new_lines, fromfile="a", tofile="b", lineterm="", n=context_lines))
+    
+    if not diff_lines:
+        return []
+
+    file_lexer = guess_lexer(filename=filename)
+    old_lexer = lexer_name or file_lexer or guess_lexer(text=old_text)
+    new_lexer = lexer_name or file_lexer or guess_lexer(text=new_text)
+
+    def make_line(left_ln: int | None, style: str | None, mid: str, body: str, lexer: str) -> Text:
+        num = styled_line_number(left_ln, style=style)
+        return num + Text(mid) + syntax_text(body, lexer_name=lexer)
+
+    out: list[tuple[str, Text]] = []
+    old_ln = 1
+    new_ln = 1
+
+    for line in diff_lines:
+        if not line or line.startswith(("---", "+++")):
+            continue
+        if line.startswith("@@"):
+            parsed = parse_unified_hunk_header(line)
+            if parsed:
+                old_ln, new_ln = parsed[0], parsed[2]
+            continue
+        
+        prefix = line[:1]
+        body = line[1:]
+        
+        if prefix == " ":
+            out.append(("context", make_line(old_ln, None, "   ", body, old_lexer)[:-1]))
+            old_ln += 1
+            new_ln += 1
+        elif prefix == "-":
+            out.append(("delete", make_line(old_ln, "bright_red on dark_red", " - ", body, old_lexer)[:-1]))
+            old_ln += 1
+        elif prefix == "+":
+            out.append(("insert", make_line(new_ln, "bright_green on dark_green", " + ", body, new_lexer)[:-1]))
+            new_ln += 1
+        else:
+            out.append(("header", Text(line)[:-1]))
+
+    return out
+
+
+def print_numbered_combined_diff(
+    old_text: str,
+    new_text: str,
+    *,
+    context_lines: int = 3,
+    title: str | None = None,
+    lexer_name: str | None = None,
+    filename: str | None = None,
+):
+    if title:
+        console.print(f"\n{title}")
+
+    lines = format_combined_diff_lines(
+        old_text,
+        new_text,
+        context_lines=context_lines,
+        lexer_name=lexer_name,
+        filename=filename,
+    )
+
+    if not lines:
+        console.print("[yellow](no diff; content is identical)[/yellow]")
+        return
+
+    for _, t in lines:
+        console.print(t)
+
+
+def apply_one_replacement(original: str, old_string: str, new_string: str) -> tuple[str | None, str]:
+    def replace_if(haystack: str, needle: str) -> str | None:
+        return haystack.replace(needle, new_string) if needle and needle in haystack else None
+
+    updated = replace_if(original, old_string)
+    matched_old = old_string
+
+    if updated is None:
+        trimmed_old = old_string.strip()
+        updated = replace_if(original, trimmed_old) if trimmed_old and trimmed_old != old_string else None
+        matched_old = trimmed_old if updated is not None else matched_old
+
+    if updated is None:
+        stripped_original = original.strip()
+        trimmed_old = old_string.strip()
+        if stripped_original and trimmed_old and trimmed_old in stripped_original:
+            leading = original[: len(original) - len(original.lstrip())]
+            trailing = original[len(original.rstrip()) :]
+            replaced_core = stripped_original.replace(trimmed_old, new_string)
+            updated = f"{leading}{replaced_core}{trailing}"
+            matched_old = trimmed_old
+
+    return (updated, matched_old)
+
+
+def apply_replacements(replacements, base_dir: Path | None = None, language: str | None = None) -> list[Path]:
+    # Apply model-generated string replacements to disk with diff preview
+    base_dir = base_dir or Path.cwd()
+
+    def apply_single(i: int, r: dict) -> Path | None:
+        filename = dict_get(r, "filename")
+        old_string = dict_get(r, "old_string")
+        new_string = dict_get(r, "new_string")
+        
+        if not filename:
+            print(f"[red]Replacement #{i} missing filename; skipping[/red]")
+            return None
+        if old_string is None or new_string is None:
+            print(f"[red]Replacement for {filename} missing old_string/new_string; skipping[/red]")
+            return None
+
+        target_path = (base_dir / filename).resolve()
+        original = read_text_or_none(target_path) if target_path.exists() else None
+
+        if original is None and as_non_empty_str(old_string) is None:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            print_numbered_combined_diff("", new_string, context_lines=2, title=filename, filename=filename, lexer_name=language)
+            target_path.write_text(new_string, encoding="utf-8")
+            return target_path
+
+        if original is None:
+            print(f"[red]Target file not found: {target_path}[/red]")
+            return None
+
+        updated, _ = apply_one_replacement(original, old_string, new_string)
+        if updated is None:
+            print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
+            return None
+        if updated == original:
+            print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")
+            return None
+
+        print_numbered_combined_diff(original, updated, context_lines=2, title=filename, filename=filename, lexer_name=language)
+        target_path.write_text(updated, encoding="utf-8")
+        return target_path
+
+    return list(filter(None, (apply_single(i, r) for i, r in enumerate(replacements or []))))
+
+
+
+def repo_from_dir(base_dir: Path) -> git.Repo | None:
+    # Walk upward from base_dir to find the nearest git repository
+    if (base_dir / ".git").exists():
+        return git.Repo(base_dir)
+
+    current = base_dir
+    while current != current.parent:
+        if (current / ".git").exists():
+            return git.Repo(current)
+        current = current.parent
+
+    return None
+
+
+def stage_and_commit(repo: git.Repo, changed_files: list[Path], message: str) -> str | None:
+    repo_root = Path(repo.working_tree_dir or ".").resolve()
+    relpaths = [str(p.resolve().relative_to(repo_root)) for p in changed_files if p]
+    if not relpaths:
+        return None
+    repo.index.add(relpaths)
+    repo.index.commit(message)
+    return message
+
+
+def require_valid_repo(base_dir: Path) -> git.Repo | None:
+    repo = repo_from_dir(base_dir)
+    if repo is None:
+        print("Not a git repository")
+        return None
+    if not repo.head.is_valid():
+        print("No valid commits")
+        return None
+    return repo
+
+
+def undo_last_commit(base_dir: Path) -> int:
+    repo = require_valid_repo(base_dir)
+    if repo is None:
+        return 1
+    if not repo.head.commit.parents:
+        print("No parent commit to reset to")
+        return 1
+    repo.git.reset("--hard", "HEAD~1")
+    return 0
+
+
+def redo_last_commit(base_dir: Path) -> int:
+    repo = require_valid_repo(base_dir)
+    if repo is None:
+        return 1
+    orig_path = Path(repo.git_dir) / "ORIG_HEAD"
+    if not orig_path.exists():
+        print("No ORIG_HEAD found to redo to")
+        return 1
+    orig_head = repo.commit("ORIG_HEAD")
+    if orig_head.hexsha == repo.head.commit.hexsha:
+        print("Already at the most recent commit")
+        return 0
+    repo.git.reset("--hard", orig_head.hexsha)
+    return 0
+
+
+if __name__ == "__main__":
+    app()
 
 
 
