@@ -535,6 +535,20 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
 
     print(f"\n[cyan]Build:[/cyan] {build_cmd}\n")
 
+    def read_fd(fd: int, *, bufsize: int = 1024) -> bytes | None:
+        try:
+            return os.read(fd, bufsize)
+        except OSError as e:
+            return b"" if getattr(e, "errno", None) == 5 else None
+
+    def sanitize_output(chunks: list[bytes]) -> str:
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
+        raw = raw.replace("\r\n", "\n")
+        raw = raw.replace("\r", "\n")
+        raw = "\n".join(filter(None, raw.splitlines())) + ("\n" if raw.endswith("\n") else "")
+        ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", raw)
+
     stdout_chunks: list[bytes] = []
     stderr_chunks: list[bytes] = []
 
@@ -554,7 +568,9 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     while readable:
         ready, _, _ = __import__("select").select(readable, [], [], 0.1)
         for fd in ready:
-            data = os.read(fd, 1024)
+            data = read_fd(fd)
+            if data is None:
+                continue
             if data:
                 if fd == stdout_fd:
                     stdout_chunks.append(data)
@@ -572,11 +588,6 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
 
     os.close(stdout_fd)
     os.close(stderr_fd)
-
-    def sanitize_output(chunks: list[bytes]) -> str:
-        raw = b"".join(chunks).decode("utf-8", errors="replace")
-        ansi_escape = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        return ansi_escape.sub("", raw)
 
     stdout_str = sanitize_output(stdout_chunks)
     stderr_str = sanitize_output(stderr_chunks)
