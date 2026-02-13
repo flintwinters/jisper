@@ -404,8 +404,6 @@ def main(
     commit_message = as_non_empty_str(response.get("commit_message")) or as_non_empty_str(edit_data.get("commit_message")) or "Apply model edits"
     print(f"\n[green]Commit message:[/green] {commit_message}\n")
 
-    run_build_step(config, config_path)
-
     in_price, out_price = MODEL_PRICES_USD_PER_1M.get(model_code, (DEFAULT_FALLBACK_INPUT_USD_PER_1M, DEFAULT_FALLBACK_OUTPUT_USD_PER_1M))
     pt = usage.get("prompt_tokens") or 0
     ct = usage.get("completion_tokens") or 0
@@ -422,6 +420,8 @@ def main(
         return
 
     stage_and_commit(repo, changed_files, commit_message)
+
+    run_build_step(config, config_path)
 
 
 def get_model_code(config: dict) -> str:
