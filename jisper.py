@@ -533,26 +533,15 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     if not build_cmd:
         return None
 
+    print(f"\n[cyan]Build:[/cyan] {build_cmd}\n")
+
     stdout_chunks: list[bytes] = []
     stderr_chunks: list[bytes] = []
-
-    def master_read(fd: int) -> bytes:
-        data = os.read(fd, 1024)
-        if data:
-            stdout_chunks.append(data)
-        return data
-
-    def stderr_read(fd: int) -> bytes:
-        data = os.read(fd, 1024)
-        if data:
-            stderr_chunks.append(data)
-        return data
 
     stdout_fd, stdout_slave = pty.openpty()
     stderr_fd, stderr_slave = pty.openpty()
 
-    import subprocess
-    proc = subprocess.Popen(
+    proc = __import__("subprocess").Popen(
         ["/bin/sh", "-c", build_cmd],
         stdout=stdout_slave,
         stderr=stderr_slave,
@@ -561,23 +550,20 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     os.close(stdout_slave)
     os.close(stderr_slave)
 
-    import select
     readable = [stdout_fd, stderr_fd]
     while readable:
-        ready, _, _ = select.select(readable, [], [], 0.1)
+        ready, _, _ = __import__("select").select(readable, [], [], 0.1)
         for fd in ready:
-            try:
-                data = os.read(fd, 1024)
-            except OSError as e:
-                if e.errno == 5:
-                    data = b""
-                else:
-                    raise
+            data = os.read(fd, 1024)
             if data:
                 if fd == stdout_fd:
                     stdout_chunks.append(data)
+                    sys.stdout.write(data.decode("utf-8", errors="replace"))
+                    sys.stdout.flush()
                 else:
                     stderr_chunks.append(data)
+                    sys.stderr.write(data.decode("utf-8", errors="replace"))
+                    sys.stderr.flush()
             else:
                 readable.remove(fd)
 
@@ -602,37 +588,28 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     with open(config_path, "r", encoding="utf-8") as f:
         existing_config = yaml_inst.load(f) or {}
 
-    if return_code == 0:
-        if "error" in existing_config:
-            del existing_config["error"]
-        if "build_stdout" in existing_config:
-            del existing_config["build_stdout"]
-        if "build_stderr" in existing_config:
-            del existing_config["build_stderr"]
-        if "success" in existing_config:
-            existing_config["success"] = True
-        elif hasattr(existing_config, "insert") and "build" in existing_config:
-            keys = list(existing_config.keys())
-            existing_config.insert(keys.index("build") + 1, "success", True)
-        else:
-            existing_config["success"] = True
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml_inst.dump(existing_config, f)
-        return 0
-
-    if "success" in existing_config:
-        del existing_config["success"]
-    if "error" in existing_config:
-        del existing_config["error"]
     if "build_stdout" in existing_config:
         del existing_config["build_stdout"]
     if "build_stderr" in existing_config:
         del existing_config["build_stderr"]
+    if "success" in existing_config:
+        del existing_config["success"]
+    if "error" in existing_config:
+        del existing_config["error"]
 
     if stdout_str:
         existing_config["build_stdout"] = LiteralScalarString(stdout_str)
     if stderr_str:
         existing_config["build_stderr"] = LiteralScalarString(stderr_str)
+
+    if return_code == 0:
+        if hasattr(existing_config, "insert") and "build" in existing_config and "success" not in existing_config:
+            keys = list(existing_config.keys())
+            existing_config.insert(keys.index("build") + 1, "success", True)
+        else:
+            existing_config["success"] = True
+    else:
+        existing_config["error"] = f"build failed ({return_code})"
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml_inst.dump(existing_config, f)
