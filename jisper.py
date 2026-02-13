@@ -109,7 +109,6 @@ app = typer.Typer(add_completion=False)
 
 DEFAULT_PROMPT_FILE = "prompt.yaml"
 DEFAULT_TEMPLATE_PROMPT_FILE = "default_prompt.yaml"
-DEFAULT_MODEL = "gpt-5.2"
 DEFAULT_API_KEY_ENV_VAR = "OPENAI_API_KEY"
 DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_FALLBACK_INPUT_USD_PER_1M = 5.0
@@ -428,7 +427,11 @@ def main(
 
 
 def get_model_code(config: dict) -> str:
-    return as_non_empty_str(dict_get(config, "model")) or DEFAULT_MODEL
+    model = as_non_empty_str(dict_get(config, "model"))
+    if not model:
+        print("[red]Missing required config key:[/red] model")
+        raise typer.Exit(code=2)
+    return model
 
 def styled_line_number(ln: int | None, *, width: int = 4, style: str | None = None) -> Text:
     s = f"{ln:>{width}}" if ln is not None else " " * width
@@ -484,8 +487,6 @@ def build_source_material(prompt_config: dict, *, base_dir: Path | None = None) 
 
 def render_jinja_template(template_text: str, context: dict) -> str:
     t = as_non_empty_str(template_text) or ""
-    if "{{" not in t and "{%" not in t and "{#" not in t:
-        return template_text
     env = __import__("jinja2").Environment(autoescape=False, keep_trailing_newline=True)
     template = env.from_string(template_text)
     return template.render(**(context or {}))

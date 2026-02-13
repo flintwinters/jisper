@@ -50,7 +50,7 @@ task: >
 full_files:
   - jisper.py
 
-model: gpt-5.2
+model: gpt-5.2  # required (no default)
 provider: openai # 'openai' (default), 'google', or 'openrouter'
 endpoint: https://api.openai.com/v1/chat/completions
 api_key_env_var: OPENAI_API_KEY
