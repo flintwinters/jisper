@@ -162,7 +162,8 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5.2": (5.0, 15.0),
     "gpt-5-mini": (1.0, 3.0),
     "qwen/qwen3-coder:exacto": (0.22, 1.8),
-    "moonshotai/kimi-k2.5": (.25, 2.25)
+    "moonshotai/kimi-k2.5": (.25, 2.25),
+    "z-ai/glm-5": (1, 3.20)
 }
 
 
