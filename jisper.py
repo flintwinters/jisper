@@ -320,13 +320,14 @@ def select_context_fields(summary: dict, *, intent_only: bool) -> dict | None:
     return {"context": out} if out else None
 
 
-def build_file_summaries_section(files: list[str], *, intent_only: bool) -> str:
+def build_file_summaries_section(files: list[str], *, intent_only: bool, jinja_context: dict | None = None) -> str:
     def process_file(filename: str) -> str | None:
         txt = read_text_or_none(Path(filename))
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
             return None
-        summary = extract_file_summary_yaml(txt)
+        rendered = render_jinja_template(txt, jinja_context) if jinja_context else txt
+        summary = extract_file_summary_yaml(rendered)
         selected = select_context_fields(summary, intent_only=intent_only) if summary else None
         if not selected:
             return None
@@ -484,8 +485,8 @@ def build_source_material(prompt_config: dict, *, base_dir: Path | None = None, 
     includes = resolve_included_files(prompt_config)
 
     full_text = read_and_concatenate_files(includes["full_files"], base_dir=base_dir, jinja_context=jinja_context).strip()
-    structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
-    input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
+    structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False, jinja_context=jinja_context)
+    input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True, jinja_context=jinja_context)
 
     parts = list(
         filter(
