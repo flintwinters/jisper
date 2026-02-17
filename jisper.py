@@ -464,7 +464,7 @@ def load_prompt_file(path: Path) -> dict:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def read_and_concatenate_files(file_list, *, base_dir: Path | None = None):
+def read_and_concatenate_files(file_list, *, base_dir: Path | None = None, jinja_context: dict | None = None):
     base_dir = base_dir or Path.cwd()
 
     def one(filename: str) -> str | None:
@@ -473,16 +473,17 @@ def read_and_concatenate_files(file_list, *, base_dir: Path | None = None):
         if txt is None:
             print(f"[red]Missing input file: {filename}[/red]")
             return None
-        return f"--- FILENAME: {filename} ---\n{txt}"
+        rendered = render_jinja_template(txt, jinja_context) if jinja_context else txt
+        return f"--- FILENAME: {filename} ---\n{rendered}"
 
     return "\n\n".join(filter(None, map(one, file_list or [])))
 
 
-def build_source_material(prompt_config: dict, *, base_dir: Path | None = None) -> str:
+def build_source_material(prompt_config: dict, *, base_dir: Path | None = None, jinja_context: dict | None = None) -> str:
     base_dir = base_dir or Path.cwd()
     includes = resolve_included_files(prompt_config)
 
-    full_text = read_and_concatenate_files(includes["full_files"], base_dir=base_dir).strip()
+    full_text = read_and_concatenate_files(includes["full_files"], base_dir=base_dir, jinja_context=jinja_context).strip()
     structural = build_file_summaries_section(includes["structural_level_files"], intent_only=False)
     input_lvl = build_file_summaries_section(includes["input_level_files"], intent_only=True)
 
@@ -506,7 +507,7 @@ def render_jinja_template(template_text: str, context: dict) -> str:
     return template.render(**(context or {}))
 
 
-def build_jinja_context(prompt_config: dict, *, source_text: str, user_task: str, system_prompt: str) -> dict:
+def build_jinja_context(prompt_config: dict, *, source_text: str = "", user_task: str = "", system_prompt: str = "") -> dict:
     cfg = prompt_config if isinstance(prompt_config, dict) else {}
     ctx = dict(cfg)
     ctx["source_text"] = source_text
@@ -701,7 +702,13 @@ def run(config_path: Path, routine_name: str | None = None, debug: bool = False,
         api_key_env_var = "OPENROUTER_API_KEY"
     api_key = as_non_empty_str(os.getenv(api_key_env_var or ""))
 
-    source_material = build_source_material(config, base_dir=Path.cwd())
+    system_prompt_raw = config.get("system_prompt", "")
+    project_prompt = as_non_empty_str(config.get("project"))
+    system_prompt_for_ctx = f"{system_prompt_raw}\n\n{project_prompt}" if project_prompt else system_prompt_raw
+    user_task_for_ctx = resolve_routine_task(config, routine_name) or config.get("task", "")
+    file_jinja_context = build_jinja_context(config, source_text="", user_task=user_task_for_ctx, system_prompt=system_prompt_for_ctx)
+
+    source_material = build_source_material(config, base_dir=Path.cwd(), jinja_context=file_jinja_context)
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
