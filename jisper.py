@@ -163,7 +163,8 @@ MODEL_PRICES_USD_PER_1M = {
     "gpt-5-mini": (1.0, 3.0),
     "qwen/qwen3-coder:exacto": (0.22, 1.8),
     "moonshotai/kimi-k2.5": (.25, 2.25),
-    "z-ai/glm-5": (1, 3.20)
+    "z-ai/glm-5": (1, 3.20),
+    "openai/gpt-oss-120b:nitro": (0.35, 0.95),
 }
 
 
@@ -386,6 +387,12 @@ def main(
         help="Redo the last undo by moving HEAD to a more recent commit (fast-forward to ORIG_HEAD when available).",
         show_default=False,
     ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help="Print the full prompt text (SYSTEM PROMPT + TASK + SOURCE MATERIAL) right before it is sent.",
+        show_default=False,
+    ),
 ) -> None:
     if new:
         raise typer.Exit(code=write_default_prompt_to_cwd())
@@ -396,7 +403,7 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response, usage, model_code, config = run(config_path, routine)
+    response, usage, model_code, config = run(config_path, routine, debug=debug)
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
@@ -535,7 +542,7 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
             "type": "json_schema",
             "json_schema": {"name": "response_schema", "strict": True, "schema": schema},
         }
-    return payload
+    return payload, prompt_content
 
 
 def extract_usage_from_api_response(api_json: dict, response_headers: dict) -> dict:
@@ -670,7 +677,7 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     return return_code
 
 
-def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict, str]:
+def run(config_path: Path, routine_name: str | None = None, debug: bool = False) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
@@ -695,7 +702,12 @@ def run(config_path: Path, routine_name: str | None = None) -> tuple[dict, dict,
         "Content-Type": "application/json",
     }
 
-    payload = build_payload(config, source_material, routine_name, endpoint_url=endpoint_url)
+    payload, prompt_content = build_payload(config, source_material, routine_name, endpoint_url=endpoint_url)
+
+    if debug:
+        console.print("\n--- PROMPT (user message content) ---\n")
+        console.print(prompt_content)
+        console.print("\n--- END PROMPT ---\n")
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
