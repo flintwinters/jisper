@@ -710,7 +710,9 @@ def run(config_path: Path, routine_name: str | None = None, debug: bool = False,
     user_task_for_ctx = resolve_routine_task(config, routine_name) or config.get("task", "")
     file_jinja_context = build_jinja_context(config, source_text="", user_task=user_task_for_ctx, system_prompt=system_prompt_for_ctx)
 
-    source_material = build_source_material(config, base_dir=Path.cwd(), jinja_context=file_jinja_context)
+    render_source_files_as_jinja = bool(config.get("render_source_files_as_jinja"))
+    source_jinja_context = file_jinja_context if render_source_files_as_jinja else None
+    source_material = build_source_material(config, base_dir=Path.cwd(), jinja_context=source_jinja_context)
 
     headers = {
         "Authorization": f"Bearer {api_key or ''}",
