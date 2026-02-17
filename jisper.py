@@ -393,6 +393,12 @@ def main(
         help="Print the full prompt text (SYSTEM PROMPT + TASK + SOURCE MATERIAL) right before it is sent.",
         show_default=False,
     ),
+    no_model: bool = typer.Option(
+        False,
+        "--no-model",
+        help="Stop before sending the request to the model (useful for inspecting payload).",
+        show_default=False,
+    ),
 ) -> None:
     if new:
         raise typer.Exit(code=write_default_prompt_to_cwd())
@@ -403,7 +409,7 @@ def main(
     if undo:
         raise typer.Exit(code=undo_last_commit(Path.cwd()))
 
-    response, usage, model_code, config = run(config_path, routine, debug=debug)
+    response, usage, model_code, config = run(config_path, routine, debug=debug, no_model=no_model)
 
     edits = response["edit"]
     replacements = edits.get("replacements", [])
@@ -677,7 +683,7 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     return return_code
 
 
-def run(config_path: Path, routine_name: str | None = None, debug: bool = False) -> tuple[dict, dict, str]:
+def run(config_path: Path, routine_name: str | None = None, debug: bool = False, no_model: bool = False) -> tuple[dict, dict, str]:
     config = load_prompt_file(config_path)
     routine_task = resolve_routine_task(config, routine_name)
     if as_non_empty_str(routine_name) and not routine_task:
@@ -708,6 +714,14 @@ def run(config_path: Path, routine_name: str | None = None, debug: bool = False)
         console.print("\n--- PROMPT (user message content) ---\n")
         console.print(prompt_content)
         console.print("\n--- END PROMPT ---\n")
+
+    if no_model:
+        print("[yellow]--no-model specified; stopping before API request[/yellow]")
+        if not debug:
+            console.print("\n--- PROMPT (user message content) ---\n")
+            console.print(payload)
+            console.print("\n--- END PROMPT ---\n")
+        raise typer.Exit(code=0)
 
     with console.status("Waiting for model...", spinner="dots"):
         response = requests.post(endpoint_url, headers=headers, json=payload)
