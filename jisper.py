@@ -531,11 +531,12 @@ def build_payload(prompt_config: dict, source_text: str, routine_name: str | Non
     schema = prompt_config.get("output_schema", DEFAULT_OUTPUT_SCHEMA)
     model_code = get_model_code(prompt_config)
 
-    prompt_content = f"SYSTEM PROMPT:\n{system_prompt}\n\nTASK:\n{user_task}"
-    prompt_content += f"\n\nSOURCE MATERIAL:\n{source_text}"
-
     jinja_context = build_jinja_context(prompt_config, source_text=source_text, user_task=user_task, system_prompt=system_prompt)
-    prompt_content = render_jinja_template(prompt_content, jinja_context)
+    rendered_system = render_jinja_template(system_prompt, jinja_context)
+    rendered_task = render_jinja_template(user_task, jinja_context)
+
+    prompt_content = f"SYSTEM PROMPT:\n{rendered_system}\n\nTASK:\n{rendered_task}"
+    prompt_content += f"\n\nSOURCE MATERIAL:\n{source_text}"
 
     payload = {
         "model": model_code,
