@@ -750,12 +750,13 @@ func processChar(b byte, i int, code string, state *lexerState) {
 }
 
 type lexerState struct {
-	quote, escape               byte
-	wordStart, numberStart       int
-	keywords                      map[string]bool
-	code                          string
-	out                           *strings.Builder
-	flushWord, flushNumber        func(int)
+	quote                  byte
+	escape                 bool
+	wordStart, numberStart int
+	keywords               map[string]bool
+	code                   string
+	out                    *strings.Builder
+	flushWord, flushNumber func(int)
 }
 
 func highlightCode(code string, lexer string, out *strings.Builder) {
