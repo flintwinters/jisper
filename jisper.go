@@ -705,73 +705,86 @@ func splitLineComment(line string, lexer string) (string, string) {
 	return line, ""
 }
 
-func highlightCode(code string, lexer string, out *strings.Builder) {
-	keywords := keywordSetForLexer(lexer)
-	quote, escape, wordStart, numberStart := byte(0), false, -1, -1
-	flushWord := func(i int) {
-		if wordStart < 0 {
+func processChar(b byte, i int, code string, state *lexerState) {
+	if state.quote != 0 {
+		state.flushWord(i)
+		state.flushNumber(i)
+		if state.quote != '`' && state.escape {
+			state.escape = false
 			return
 		}
-		if w := code[wordStart:i]; keywords[w] {
+		if state.quote != '`' && b == '\\' {
+			state.escape = true
+			return
+		}
+		state.out.WriteString(styleString.Sprint(string(b)))
+		if b == state.quote {
+			state.quote = 0
+		}
+		return
+	}
+	if b == '\'' || b == '"' || b == '`' {
+		state.flushWord(i)
+		state.flushNumber(i)
+		state.quote = b
+		state.out.WriteString(styleString.Sprint(string(b)))
+		return
+	}
+	if state.wordStart >= 0 && !isWordChar(b) {
+		state.flushWord(i)
+	}
+	if state.numberStart >= 0 && !isDigit(b) && b != '.' && b != '_' {
+		state.flushNumber(i)
+	}
+	if state.wordStart < 0 && (isLetter(b) || b == '_') {
+		state.wordStart = i
+		return
+	}
+	if state.numberStart < 0 && isDigit(b) {
+		state.numberStart = i
+		return
+	}
+	if state.wordStart < 0 && state.numberStart < 0 {
+		state.out.WriteByte(b)
+	}
+}
+
+type lexerState struct {
+	quote, escape               byte
+	wordStart, numberStart       int
+	keywords                      map[string]bool
+	code                          string
+	out                           *strings.Builder
+	flushWord, flushNumber        func(int)
+}
+
+func highlightCode(code string, lexer string, out *strings.Builder) {
+	state := &lexerState{
+		wordStart: -1, numberStart: -1, code: code, out: out, keywords: keywordSetForLexer(lexer),
+	}
+	state.flushWord = func(i int) {
+		if state.wordStart < 0 {
+			return
+		}
+		if w := code[state.wordStart:i]; state.keywords[w] {
 			out.WriteString(styleKeyword.Sprint(w))
 		} else {
 			out.WriteString(w)
 		}
-		wordStart = -1
+		state.wordStart = -1
 	}
-	flushNumber := func(i int) {
-		if numberStart < 0 {
+	state.flushNumber = func(i int) {
+		if state.numberStart < 0 {
 			return
 		}
-		out.WriteString(styleNumber.Sprint(code[numberStart:i]))
-		numberStart = -1
+		out.WriteString(styleNumber.Sprint(code[state.numberStart:i]))
+		state.numberStart = -1
 	}
 	for i := 0; i < len(code); i++ {
-		b := code[i]
-		if quote != 0 {
-			flushWord(i)
-			flushNumber(i)
-			if quote != '`' && escape {
-				escape = false
-				continue
-			}
-			if quote != '`' && b == '\\' {
-				escape = true
-				continue
-			}
-			out.WriteString(styleString.Sprint(string(b)))
-			if b == quote {
-				quote = 0
-			}
-			continue
-		}
-		if b == '\'' || b == '"' || b == '`' {
-			flushWord(i)
-			flushNumber(i)
-			quote = b
-			out.WriteString(styleString.Sprint(string(b)))
-			continue
-		}
-		if wordStart >= 0 && !isWordChar(b) {
-			flushWord(i)
-		}
-		if numberStart >= 0 && !(isDigit(b) || b == '.' || b == '_') {
-			flushNumber(i)
-		}
-		if wordStart < 0 && (isLetter(b) || b == '_') {
-			wordStart = i
-			continue
-		}
-		if numberStart < 0 && isDigit(b) {
-			numberStart = i
-			continue
-		}
-		if wordStart < 0 && numberStart < 0 {
-			out.WriteByte(b)
-		}
+		processChar(code[i], i, code, state)
 	}
-	flushWord(len(code))
-	flushNumber(len(code))
+	state.flushWord(len(code))
+	state.flushNumber(len(code))
 }
 
 func highlightLine(line string, lexer string) string {
