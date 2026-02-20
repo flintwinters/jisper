@@ -19,7 +19,7 @@ import (
 	"github.com/hexops/gotextdiff/span"
 	"github.com/pterm/pterm"
 	cli "github.com/urfave/cli"
-	yaml "go.yaml.in/yaml/v4"
+	"go.yaml.in/yaml/v4"
 )
 
 const (
@@ -71,6 +71,132 @@ var ModelPricesUSDPer1M = map[string]Prices{
 	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
 	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
+}
+
+func asNonEmptyStr(v any) (string, bool) {
+	s, ok := v.(string)
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+func asListOfNonEmptyStr(v any) []string {
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, item := range list {
+		if s, ok := asNonEmptyStr(item); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func dedupeKeepOrder(xs []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+func toRel(baseDir, p string) string {
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return p
+	}
+	absP, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	rel, err := filepath.Rel(absBase, absP)
+	if err != nil {
+		return p
+	}
+	return rel
+}
+
+func resolvePathsAndGlobs(values []string, baseDir string) []string {
+	var out []string
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		p := filepath.Join(baseDir, v)
+		st, err := os.Stat(p)
+		if err == nil && st.IsDir() {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if !e.IsDir() {
+					out = append(out, toRel(baseDir, filepath.Join(p, e.Name())))
+				}
+			}
+			sort.Slice(out[len(out)-len(entries):], func(i, j int) bool {
+				return out[i] < out[j]
+			})
+			continue
+		}
+		if err == nil {
+			out = append(out, toRel(baseDir, p))
+			continue
+		}
+		matches, err := filepath.Glob(p)
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		sort.Strings(matches)
+		for _, m := range matches {
+			st, err := os.Stat(m)
+			if err == nil && !st.IsDir() {
+				out = append(out, toRel(baseDir, m))
+			}
+		}
+	}
+	return dedupeKeepOrder(out)
+}
+
+func readTextOrNone(path string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+func buildJinjaContext(config map[string]any, sourceText, userTask, systemPrompt string) map[string]any {
+	ctx := make(map[string]any)
+	for k, v := range config {
+		ctx[k] = v
+	}
+	ctx["source_text"] = sourceText
+	ctx["task"] = userTask
+	ctx["system_prompt"] = systemPrompt
+	return ctx
+}
+
+func render(template string, ctx map[string]any) string {
+	out := template
+	for k, v := range ctx {
+		placeholder := "{{" + k + "}}"
+		val := fmt.Sprintf("%v", v)
+		out = strings.ReplaceAll(out, placeholder, val)
+	}
+	return out
 }
 
 func getModelCode(config map[string]any) string {
