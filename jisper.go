@@ -518,8 +518,25 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", matchedOld, false
 }
 
+func guessLexer(text string, filename string, language string) string {
+	if language != "" {
+		return language
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	mapping := map[string]string{
+		".py": "python", ".json": "json", ".json5": "json",
+		".go": "go", ".yaml": "yaml", ".yml": "yaml",
+		".md": "markdown", ".diff": "diff", ".patch": "diff",
+		".js": "javascript", ".ts": "typescript",
+	}
+	if l, ok := mapping[ext]; ok {
+		return l
+	}
+	return "text"
+}
+
 func syntaxText(text string, lexer string) string {
-	out, _ := pterm.DefaultSyntaxHighlighting.WithHighlightingLanguage(pterm.HighlightingLanguage(lexer)).Highlight(text)
+	out, _ := pterm.DefaultHighlighter.WithTokenMap(pterm.DefaultHighlightStyle680).Highlight(lexer, text)
 	return out
 }
 
