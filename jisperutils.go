@@ -11,22 +11,30 @@ import (
 
 func asNonEmptyStr(v any) (string, bool) {
 	s, ok := v.(string)
-	if !ok { return "", false }
+	if !ok {
+		return "", false
+	}
 	s = strings.TrimSpace(s)
-	if s == "" { return "", false }
+	if s == "" {
+		return "", false
+	}
 	return s, true
 }
 
 func asListOfNonEmptyStr(v any) []string {
 	xs, ok := v.([]any)
 	if !ok {
-		ss, ok := v.( []string)
-		if !ok { return []string{} }
+		ss, ok := v.([]string)
+		if !ok {
+			return []string{}
+		}
 		return filterEmpty(ss)
 	}
 	out := make([]string, 0, len(xs))
 	for _, x := range xs {
-		if s, ok := asNonEmptyStr(x); ok { out = append(out, s) }
+		if s, ok := asNonEmptyStr(x); ok {
+			out = append(out, s)
+		}
 	}
 	return out
 }
@@ -34,7 +42,9 @@ func asListOfNonEmptyStr(v any) []string {
 func filterEmpty(ss []string) []string {
 	out := make([]string, 0, len(ss))
 	for _, s := range ss {
-		if t := strings.TrimSpace(s); t != "" { out = append(out, t) }
+		if t := strings.TrimSpace(s); t != "" {
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -43,7 +53,9 @@ func dedupeKeepOrder(xs []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(xs))
 	for _, x := range xs {
-		if x == "" || seen[x] { continue }
+		if x == "" || seen[x] {
+			continue
+		}
 		seen[x] = true
 		out = append(out, x)
 	}
@@ -52,71 +64,70 @@ func dedupeKeepOrder(xs []string) []string {
 
 func readTextOrNone(path string) (string, bool) {
 	b, err := os.ReadFile(path)
-	if err != nil { return "", false }
+	if err != nil {
+		return "", false
+	}
 	return string(b), true
 }
 
 func resolvePathsAndGlobs(values []string, baseDir string) []string {
 	one := func(v string) []string {
 		s := strings.TrimSpace(v)
-		if s == "" { return []string{} }
+		if s == "" {
+			return []string{}
+		}
 		p := filepath.Join(baseDir, s)
 		st, err := os.Stat(p)
 		if err == nil && st.IsDir() {
 			ents, _ := os.ReadDir(p)
 			out := make([]string, 0)
 			for _, e := range ents {
-				if !e.IsDir() { out = append(out, filepath.Join(s, e.Name())) }
+				if !e.IsDir() {
+					out = append(out, filepath.Join(s, e.Name()))
+				}
 			}
 			sort.Strings(out)
 			return out
 		}
-		if err == nil && !st.IsDir() { return []string{s} }
+		if err == nil && !st.IsDir() {
+			return []string{s}
+		}
 		matches, _ := filepath.Glob(p)
 		out := make([]string, 0)
 		for _, m := range matches {
 			if mst, _ := os.Stat(m); mst != nil && !mst.IsDir() {
-				rel, _ := filepath.Rel(baseDir, m)
-				out = append(out, rel)
+				out = append(out, toRel(baseDir, m))
 			}
 		}
 		sort.Strings(out)
 		return out
 	}
 	out := make([]string, 0)
-	for _, v := range values { out = append(out, one(v)...) }
+	for _, v := range values {
+		out = append(out, one(v)...)
+	}
 	return dedupeKeepOrder(out)
 }
 
 func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]any {
 	m := map[string]any{"source_text": source, "task": task, "system_prompt": sys}
-	for k, v := range cfg { m[k] = v }
+	for k, v := range cfg {
+		m[k] = v
+	}
 	return m
 }
 
 func render(tmpl string, ctx map[string]any) string {
-	for k, v := range ctx { tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v)) }
+	for k, v := range ctx {
+		tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v))
+	}
 	return tmpl
 }
 
-func coerceInt(v any) *int {
-	switch x := v.(type) {
-	case float64: i := int(x); return &i
-	case int: return &x
-	case json.Number: i64, _ := x.Int64(); i := int(i64); return &i
-	case string: 
-		n := json.Number(strings.TrimSpace(x))
-		i64, err := n.Int64()
-		if err == nil { i := int(i64); return &i }
+func toRel(base, target string) string {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return target
 	}
-	return nil
-}
-
-func stripJSONCodeFence(s string) string {
-	t := strings.TrimSpace(s)
-	if !strings.HasPrefix(t, "```") { return s }
-	lines := strings.Split(t, "\n")
-	if len(lines) < 2 { return s }
-	inner := strings.Join(lines[1:len(lines)-1], "\n")
-	return strings.TrimSpace(inner) + "\n"
+	return rel
 }
