@@ -709,38 +709,69 @@ func highlightCode(code string, lexer string, out *strings.Builder) {
 	keywords := keywordSetForLexer(lexer)
 	quote, escape, wordStart, numberStart := byte(0), false, -1, -1
 	flushWord := func(i int) {
-		if wordStart < 0 { return }
+		if wordStart < 0 {
+			return
+		}
 		if w := code[wordStart:i]; keywords[w] {
 			out.WriteString(styleKeyword.Sprint(w))
-		} else { out.WriteString(w) }
+		} else {
+			out.WriteString(w)
+		}
 		wordStart = -1
 	}
 	flushNumber := func(i int) {
-		if numberStart < 0 { return }
+		if numberStart < 0 {
+			return
+		}
 		out.WriteString(styleNumber.Sprint(code[numberStart:i]))
 		numberStart = -1
 	}
 	for i := 0; i < len(code); i++ {
 		b := code[i]
 		if quote != 0 {
-			flushWord(i); flushNumber(i)
-			if quote != '`' && escape { escape = false; continue }
-			if quote != '`' && b == '\\' { escape = true; continue }
+			flushWord(i)
+			flushNumber(i)
+			if quote != '`' && escape {
+				escape = false
+				continue
+			}
+			if quote != '`' && b == '\\' {
+				escape = true
+				continue
+			}
 			out.WriteString(styleString.Sprint(string(b)))
-			if b == quote { quote = 0 }
+			if b == quote {
+				quote = 0
+			}
 			continue
 		}
 		if b == '\'' || b == '"' || b == '`' {
-			flushWord(i); flushNumber(i); quote = b
-			out.WriteString(styleString.Sprint(string(b))); continue
+			flushWord(i)
+			flushNumber(i)
+			quote = b
+			out.WriteString(styleString.Sprint(string(b)))
+			continue
 		}
-		if wordStart >= 0 && !isWordChar(b) { flushWord(i) }
-		if numberStart >= 0 && !(isDigit(b) || b == '.' || b == '_') { flushNumber(i) }
-		if wordStart < 0 && (isLetter(b) || b == '_') { wordStart = i; continue }
-		if numberStart < 0 && isDigit(b) { numberStart = i; continue }
-		if wordStart < 0 && numberStart < 0 { out.WriteByte(b) }
+		if wordStart >= 0 && !isWordChar(b) {
+			flushWord(i)
+		}
+		if numberStart >= 0 && !(isDigit(b) || b == '.' || b == '_') {
+			flushNumber(i)
+		}
+		if wordStart < 0 && (isLetter(b) || b == '_') {
+			wordStart = i
+			continue
+		}
+		if numberStart < 0 && isDigit(b) {
+			numberStart = i
+			continue
+		}
+		if wordStart < 0 && numberStart < 0 {
+			out.WriteByte(b)
+		}
 	}
-	flushWord(len(code)); flushNumber(len(code))
+	flushWord(len(code))
+	flushNumber(len(code))
 }
 
 func highlightLine(line string, lexer string) string {
@@ -761,22 +792,56 @@ func segmentDiffRanges(lines []gotextdiff.Line, context int) [][2]int {
 	ranges := [][2]int{}
 	i := 0
 	for i < len(lines) {
-		for i < len(lines) && lines[i].Kind == gotextdiff.Equal { i++ }
-		if i >= len(lines) { break }
+		for i < len(lines) && lines[i].Kind == gotextdiff.Equal {
+			i++
+		}
+		if i >= len(lines) {
+			break
+		}
 		start := i - context
-		if start < 0 { start = 0 }
+		if start < 0 {
+			start = 0
+		}
 		end := i + context + 1
 		j := i + 1
 		for j < len(lines) {
-			if lines[j].Kind != gotextdiff.Equal { end = j + context + 1 }
-			if j >= end { break }
+			if lines[j].Kind != gotextdiff.Equal {
+				end = j + context + 1
+			}
+			if j >= end {
+				break
+			}
 			j++
 		}
-		if end > len(lines) { end = len(lines) }
+		if end > len(lines) {
+			end = len(lines)
+		}
 		ranges = append(ranges, [2]int{start, end})
 		i = end
 	}
 	return ranges
+}
+
+func styledLineNumber(ln *int, style *pterm.Style, width int) string {
+	if ln == nil {
+		return strings.Repeat(" ", width)
+	}
+	s := fmt.Sprintf("%*d", width, *ln)
+	if style != nil {
+		return style.Sprint(s)
+	}
+	return s
+}
+
+func printNumberedCombinedDiff(oldText, newText, filename, language string) {
+	lines := formatCombinedDiffLines(oldText, newText, filename, language, 2)
+	if len(lines) == 0 {
+		pterm.Info.Println("(no diff; content is identical)")
+		return
+	}
+	for _, l := range lines {
+		fmt.Println(l)
+	}
 }
 
 func formatCombinedDiffLines(oldText, newText, filename, language string, contextLines int) []string {
@@ -788,12 +853,18 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 	out := []string{}
 	for _, hunk := range diff.Hunks {
 		lines := hunk.Lines
-		if len(lines) == 0 { continue }
+		if len(lines) == 0 {
+			continue
+		}
 		oldPrefix, newPrefix := make([]int, len(lines)+1), make([]int, len(lines)+1)
 		for i, line := range lines {
 			oldPrefix[i+1], newPrefix[i+1] = oldPrefix[i], newPrefix[i]
-			if line.Kind != gotextdiff.Insert { oldPrefix[i+1]++ }
-			if line.Kind != gotextdiff.Delete { newPrefix[i+1]++ }
+			if line.Kind != gotextdiff.Insert {
+				oldPrefix[i+1]++
+			}
+			if line.Kind != gotextdiff.Delete {
+				newPrefix[i+1]++
+			}
 		}
 		for _, r := range segmentDiffRanges(lines, contextLines) {
 			oldLn, newLn := hunk.FromLine+oldPrefix[r[0]], hunk.ToLine+newPrefix[r[0]]
@@ -810,7 +881,8 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 					oldLn++
 				default:
 					s = styledLineNumber(&oldLn, nil, 4) + "   " + highlightLine(content, lexer)
-					oldLn++; newLn++
+					oldLn++
+					newLn++
 				}
 				out = append(out, s)
 			}
@@ -831,7 +903,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readTextOrNone(targetPath)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			fmt.Printf("\n%s\n", filename)
+			pterm.DefaultHeader.WithFullWidth().Println(filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
@@ -850,7 +922,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
-		fmt.Printf("\n%s\n", filename)
+		pterm.DefaultHeader.WithFullWidth().Println(filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
