@@ -536,7 +536,7 @@ func guessLexer(text string, filename string, language string) string {
 }
 
 func syntaxText(text string, lexer string) string {
-	return pterm.Gray(0.5).Sprint(text)
+	return text
 }
 
 func applyReplacements(repls []Replacement, baseDir string, language string) []string {
