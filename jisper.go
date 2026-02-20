@@ -1,3 +1,4 @@
+// Package main provides the Jisper CLI for model-driven code edits.
 package main
 
 import (
@@ -252,7 +253,12 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	}
 
 	sourceFiles := dedupeKeepOrder(append(append([]string{}, fullFiles...), append(structOut, inputOut...)...))
-	return IncludedFiles{FullFiles: fullFiles, StructuralLevelFiles: structOut, InputLevelFiles: inputOut, SourceFiles: sourceFiles}
+	return IncludedFiles{
+		FullFiles:            fullFiles,
+		StructuralLevelFiles: structOut,
+		InputLevelFiles:      inputOut,
+		SourceFiles:          sourceFiles,
+	}
 }
 
 func loadPromptFile(path string) (map[string]any, error) {
@@ -368,7 +374,7 @@ func selectContextFields(summary map[string]any, intentOnly bool) (map[string]an
 	return map[string]any{"context": out}, true
 }
 
-func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, jinjaContext map[string]any) string {
+func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, _ map[string]any) string {
 	parts := []string{}
 	for _, filename := range files {
 		txt, ok := readTextOrNone(filepath.Join(baseDir, filename))
@@ -446,7 +452,7 @@ type payload struct {
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
 }
 
-func buildPayload(promptConfig map[string]any, sourceText string, routineName string, endpointURL string) (payload, string) {
+func buildPayload(promptConfig map[string]any, sourceText string, routineName string, _ string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
@@ -470,7 +476,8 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 	renderedSystem := renderJinjaTemplate(systemPromptForCtx, ctx)
 	renderedTask := renderJinjaTemplate(userTask, ctx)
 
-	promptContent := "SYSTEM PROMPT:\n" + renderedSystem + "\n\nTASK:\n" + renderedTask + "\n\nSOURCE MATERIAL:\n" + sourceText
+	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
+		renderedSystem, renderedTask, sourceText)
 
 	pl := payload{
 		Model: modelCode,
@@ -517,7 +524,7 @@ func coerceInt(v any) *int {
 		if s == "" {
 			return nil
 		}
-		var n json.Number = json.Number(s)
+		n := json.Number(s)
 		i64, err := n.Int64()
 		if err != nil {
 			return nil
@@ -530,7 +537,7 @@ func coerceInt(v any) *int {
 }
 
 func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Usage {
-	usageAny, _ := apiJSON["usage"]
+	usageAny := apiJSON["usage"]
 	usageMap, _ := usageAny.(map[string]any)
 	getHeader := func(k string) string { return headers.Get(k) }
 	getToken := func(jsonKey string, headerKey string) *int {
@@ -595,7 +602,7 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", matchedOld, false
 }
 
-func guessLexer(text string, filename string, language string) string {
+func guessLexer(_ string, filename string, language string) string {
 	if language != "" {
 		return language
 	}
@@ -612,7 +619,7 @@ func guessLexer(text string, filename string, language string) string {
 	return "text"
 }
 
-func syntaxText(text string, lexer string) string {
+func syntaxText(text string, _ string) string {
 	return text
 }
 
@@ -806,7 +813,9 @@ func runBuildStep(config map[string]any, configPath string) *int {
 				return
 			}
 		}
-		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &yaml.Node{Kind: yaml.ScalarNode, Value: valStr})
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: k},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: valStr})
 	}
 	if code == 0 {
 		updateKey("success", "true")
@@ -835,7 +844,7 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -901,7 +910,7 @@ func run(configPath string, routineName string, debug bool, noModel bool) (Model
 	}
 	if strings.TrimSpace(routineName) != "" {
 		if _, ok := resolveRoutineTask(config, routineName); !ok {
-			routinesAny, _ := config["routines"]
+			routinesAny := config["routines"]
 			routines, _ := routinesAny.(map[string]any)
 			available := []string{}
 			for k := range routines {
@@ -959,15 +968,15 @@ func run(configPath string, routineName string, debug bool, noModel bool) (Model
 	pl, promptContent := buildPayload(config, sourceMaterial, routineName, endpointURL)
 
 	if debug {
-		fmt.Fprintln(os.Stdout, "\n--- PROMPT (user message content) ---\n")
-		fmt.Fprintln(os.Stdout, promptContent)
-		fmt.Fprintln(os.Stdout, "\n--- END PROMPT ---\n")
+		_, _ = fmt.Fprintln(os.Stdout, "\n--- PROMPT (user message content) ---\n")
+		_, _ = fmt.Fprintln(os.Stdout, promptContent)
+		_, _ = fmt.Fprintln(os.Stdout, "\n--- END PROMPT ---\n")
 	}
 
 	if noModel {
-		fmt.Fprintln(os.Stdout, "--no-model specified; stopping before API request")
+		_, _ = fmt.Fprintln(os.Stdout, "--no-model specified; stopping before API request")
 		enc, _ := json.MarshalIndent(pl, "", "  ")
-		fmt.Fprintln(os.Stdout, string(enc))
+		_, _ = fmt.Fprintln(os.Stdout, string(enc))
 		os.Exit(0)
 	}
 
