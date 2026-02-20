@@ -646,26 +646,17 @@ func isWordChar(b byte) bool { return isLetter(b) || isDigit(b) || b == '_' }
 func keywordSetForLexer(lexer string) map[string]bool {
 	if lexer == "go" {
 		return map[string]bool{
-			"break": true, "case": true, "chan": true, "const": true, "continue": true, "default": true, "defer": true, "else": true,
-			"fallthrough": true, "for": true, "func": true, "go": true, "goto": true, "if": true, "import": true, "interface": true,
-			"map": true, "package": true, "range": true, "return": true, "select": true, "struct": true, "switch": true, "type": true, "var": true,
+			"break": true, "case": true, "chan": true, "const": true, "continue": true, "default": true, "defer": true, "else": true, "fallthrough": true, "for": true, "func": true, "go": true, "goto": true, "if": true, "import": true, "interface": true, "map": true, "package": true, "range": true, "return": true, "select": true, "struct": true, "switch": true, "type": true, "var": true,
 		}
 	}
 	if lexer == "python" {
 		return map[string]bool{
-			"and": true, "as": true, "assert": true, "break": true, "class": true, "continue": true, "def": true, "del": true,
-			"elif": true, "else": true, "except": true, "False": true, "finally": true, "for": true, "from": true, "global": true,
-			"if": true, "import": true, "in": true, "is": true, "lambda": true, "None": true, "nonlocal": true, "not": true,
-			"or": true, "pass": true, "raise": true, "return": true, "True": true, "try": true, "while": true, "with": true, "yield": true,
+			"elif": true, "else": true, "except": true, "False": true, "finally": true, "for": true, "from": true, "global": true, "if": true, "import": true, "in": true, "is": true, "lambda": true, "None": true, "nonlocal": true, "not": true, "or": true, "pass": true, "raise": true, "return": true, "True": true, "try": true, "while": true, "with": true, "yield": true,
 		}
 	}
 	if lexer == "javascript" || lexer == "typescript" {
 		return map[string]bool{
-			"break": true, "case": true, "catch": true, "class": true, "const": true, "continue": true, "debugger": true, "default": true,
-			"delete": true, "do": true, "else": true, "export": true, "extends": true, "finally": true, "for": true, "function": true,
-			"if": true, "import": true, "in": true, "instanceof": true, "let": true, "new": true, "return": true, "super": true,
-			"switch": true, "this": true, "throw": true, "try": true, "typeof": true, "var": true, "void": true, "while": true, "with": true,
-			"yield": true,
+			"break": true, "case": true, "catch": true, "class": true, "const": true, "continue": true, "debugger": true, "default": true, "delete": true, "do": true, "else": true, "export": true, "extends": true, "finally": true, "for": true, "function": true, "if": true, "import": true, "in": true, "instanceof": true, "let": true, "new": true, "return": true, "super": true, "switch": true, "this": true, "throw": true, "try": true, "typeof": true, "var": true, "void": true, "while": true, "with": true, "yield": true,
 		}
 	}
 	return map[string]bool{}
@@ -687,15 +678,13 @@ func splitLineComment(line string, lexer string) (string, string) {
 	for i := 0; i < len(line); i++ {
 		b := line[i]
 		if quote != 0 {
-			if quote != '`' {
-				if escape {
-					escape = false
-					continue
-				}
-				if b == '\\' {
-					escape = true
-					continue
-				}
+			if quote != '`' && escape {
+				escape = false
+				continue
+			}
+			if quote != '`' && b == '\\' {
+				escape = true
+				continue
 			}
 			if b == quote {
 				quote = 0
@@ -706,19 +695,52 @@ func splitLineComment(line string, lexer string) (string, string) {
 			quote = b
 			continue
 		}
-		if marker == "#" {
-			if b == '#' {
-				return line[:i], line[i:]
-			}
-			continue
+		if marker == "#" && b == '#' {
+			return line[:i], line[i:]
 		}
-		if marker == "//" {
-			if i+1 < len(line) && line[i:i+2] == "//" {
-				return line[:i], line[i:]
-			}
+		if marker == "//" && i+1 < len(line) && line[i:i+2] == "//" {
+			return line[:i], line[i:]
 		}
 	}
 	return line, ""
+}
+
+func highlightCode(code string, lexer string, out *strings.Builder) {
+	keywords := keywordSetForLexer(lexer)
+	quote, escape, wordStart, numberStart := byte(0), false, -1, -1
+	flushWord := func(i int) {
+		if wordStart < 0 { return }
+		if w := code[wordStart:i]; keywords[w] {
+			out.WriteString(styleKeyword.Sprint(w))
+		} else { out.WriteString(w) }
+		wordStart = -1
+	}
+	flushNumber := func(i int) {
+		if numberStart < 0 { return }
+		out.WriteString(styleNumber.Sprint(code[numberStart:i]))
+		numberStart = -1
+	}
+	for i := 0; i < len(code); i++ {
+		b := code[i]
+		if quote != 0 {
+			flushWord(i); flushNumber(i)
+			if quote != '`' && escape { escape = false; continue }
+			if quote != '`' && b == '\\' { escape = true; continue }
+			out.WriteString(styleString.Sprint(string(b)))
+			if b == quote { quote = 0 }
+			continue
+		}
+		if b == '\'' || b == '"' || b == '`' {
+			flushWord(i); flushNumber(i); quote = b
+			out.WriteString(styleString.Sprint(string(b))); continue
+		}
+		if wordStart >= 0 && !isWordChar(b) { flushWord(i) }
+		if numberStart >= 0 && !(isDigit(b) || b == '.' || b == '_') { flushNumber(i) }
+		if wordStart < 0 && (isLetter(b) || b == '_') { wordStart = i; continue }
+		if numberStart < 0 && isDigit(b) { numberStart = i; continue }
+		if wordStart < 0 && numberStart < 0 { out.WriteByte(b) }
+	}
+	flushWord(len(code)); flushNumber(len(code))
 }
 
 func highlightLine(line string, lexer string) string {
@@ -727,230 +749,68 @@ func highlightLine(line string, lexer string) string {
 		return line
 	}
 	code, comment := splitLineComment(line, lexer)
-	keywords := keywordSetForLexer(lexer)
 	var out strings.Builder
-	quote := byte(0)
-	escape := false
-	wordStart := -1
-	numberStart := -1
-	flushWord := func(i int) {
-		if wordStart < 0 {
-			return
-		}
-		w := code[wordStart:i]
-		if keywords[w] {
-			out.WriteString(styleKeyword.Sprint(w))
-		} else {
-			out.WriteString(w)
-		}
-		wordStart = -1
-	}
-	flushNumber := func(i int) {
-		if numberStart < 0 {
-			return
-		}
-		out.WriteString(styleNumber.Sprint(code[numberStart:i]))
-		numberStart = -1
-	}
-	for i := 0; i < len(code); i++ {
-		b := code[i]
-		if quote != 0 {
-			flushWord(i)
-			flushNumber(i)
-			if quote != '`' {
-				if escape {
-					escape = false
-					continue
-				}
-				if b == '\\' {
-					escape = true
-					continue
-				}
-			}
-			if b == quote {
-				out.WriteString(styleString.Sprint(code[i : i+1]))
-				quote = 0
-				continue
-			}
-			out.WriteString(styleString.Sprint(code[i : i+1]))
-			continue
-		}
-		if b == '\'' || b == '"' || b == '`' {
-			flushWord(i)
-			flushNumber(i)
-			quote = b
-			out.WriteString(styleString.Sprint(code[i : i+1]))
-			continue
-		}
-		if wordStart >= 0 {
-			if isWordChar(b) {
-				continue
-			}
-			flushWord(i)
-		}
-		if numberStart >= 0 {
-			if isDigit(b) || b == '.' || b == '_' {
-				continue
-			}
-			flushNumber(i)
-		}
-		if isLetter(b) || b == '_' {
-			wordStart = i
-			continue
-		}
-		if isDigit(b) {
-			numberStart = i
-			continue
-		}
-		out.WriteByte(b)
-	}
-	flushWord(len(code))
-	flushNumber(len(code))
+	highlightCode(code, lexer, &out)
 	if comment != "" {
 		out.WriteString(styleComment.Sprint(comment))
 	}
 	return out.String()
 }
 
-func parseUnifiedHunkHeader(line string) (int, int, bool) {
-	if !strings.HasPrefix(line, "@@") {
-		return 0, 0, false
-	}
-	parts := strings.Split(line, " ")
-	if len(parts) < 3 {
-		return 0, 0, false
-	}
-	parseRange := func(p string) (int, bool) {
-		core := p[1:]
-		if strings.Contains(core, ",") {
-			core = strings.Split(core, ",")[0]
+func segmentDiffRanges(lines []gotextdiff.Line, context int) [][2]int {
+	ranges := [][2]int{}
+	i := 0
+	for i < len(lines) {
+		for i < len(lines) && lines[i].Kind == gotextdiff.Equal { i++ }
+		if i >= len(lines) { break }
+		start := i - context
+		if start < 0 { start = 0 }
+		end := i + context + 1
+		j := i + 1
+		for j < len(lines) {
+			if lines[j].Kind != gotextdiff.Equal { end = j + context + 1 }
+			if j >= end { break }
+			j++
 		}
-		n := coerceInt(core)
-		if n == nil {
-			return 0, false
-		}
-		return *n, true
+		if end > len(lines) { end = len(lines) }
+		ranges = append(ranges, [2]int{start, end})
+		i = end
 	}
-	oldLn, ok1 := parseRange(parts[1])
-	newLn, ok2 := parseRange(parts[2])
-	return oldLn, newLn, ok1 && ok2
-}
-
-func styledLineNumber(ln *int, style *pterm.Style, width int) string {
-	s := fmt.Sprintf("%*v", width, "")
-	if ln != nil {
-		s = fmt.Sprintf("%*d", width, *ln)
-	}
-	if style != nil && ln != nil {
-		return style.Sprint(s)
-	}
-	return s
-}
-
-func printNumberedCombinedDiff(oldText, newText, filename, language string) {
-	diffLines := formatCombinedDiffLines(oldText, newText, filename, language, 2)
-	if len(diffLines) == 0 {
-		fmt.Println("(no diff; content is identical)")
-		return
-	}
-	for _, line := range diffLines {
-		fmt.Println(line)
-	}
+	return ranges
 }
 
 func formatCombinedDiffLines(oldText, newText, filename, language string, contextLines int) []string {
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := gotextdiff.ToUnified("a", "b", oldText, edits)
 	lexer := guessLexer(oldText+"\n"+newText, filename, language)
-	styleDelete := pterm.NewStyle(pterm.FgLightRed, pterm.BgRed)
-	styleInsert := pterm.NewStyle(pterm.FgLightGreen, pterm.BgGreen)
-	styleDeletePrefix := pterm.NewStyle(pterm.FgLightRed)
-	styleInsertPrefix := pterm.NewStyle(pterm.FgLightGreen)
-
-	segmentRanges := func(lines []gotextdiff.Line, context int) [][2]int {
-		changes := make([]bool, len(lines))
-		for i, line := range lines {
-			if line.Kind != gotextdiff.Equal {
-				changes[i] = true
-			}
-		}
-		ranges := make([][2]int, 0, 4)
-		i := 0
-		for i < len(lines) {
-			for i < len(lines) && !changes[i] {
-				i++
-			}
-			if i >= len(lines) {
-				break
-			}
-			start := i - context
-			if start < 0 {
-				start = 0
-			}
-			end := i + context + 1
-			j := i + 1
-			for j < len(lines) {
-				if changes[j] {
-					end = j + context + 1
-				}
-				if j >= end {
-					break
-				}
-				j++
-			}
-			if end > len(lines) {
-				end = len(lines)
-			}
-			ranges = append(ranges, [2]int{start, end})
-			i = end
-		}
-		return ranges
-	}
-
+	styleDel, styleIns := pterm.NewStyle(pterm.FgLightRed, pterm.BgRed), pterm.NewStyle(pterm.FgLightGreen, pterm.BgGreen)
+	styleDelPre, styleInsPre := pterm.NewStyle(pterm.FgLightRed), pterm.NewStyle(pterm.FgLightGreen)
 	out := []string{}
 	for _, hunk := range diff.Hunks {
 		lines := hunk.Lines
-		if len(lines) == 0 {
-			continue
-		}
-		oldPrefix := make([]int, len(lines)+1)
-		newPrefix := make([]int, len(lines)+1)
+		if len(lines) == 0 { continue }
+		oldPrefix, newPrefix := make([]int, len(lines)+1), make([]int, len(lines)+1)
 		for i, line := range lines {
-			oldPrefix[i+1] = oldPrefix[i]
-			newPrefix[i+1] = newPrefix[i]
-			if line.Kind != gotextdiff.Insert {
-				oldPrefix[i+1]++
-			}
-			if line.Kind != gotextdiff.Delete {
-				newPrefix[i+1]++
-			}
+			oldPrefix[i+1], newPrefix[i+1] = oldPrefix[i], newPrefix[i]
+			if line.Kind != gotextdiff.Insert { oldPrefix[i+1]++ }
+			if line.Kind != gotextdiff.Delete { newPrefix[i+1]++ }
 		}
-		ranges := segmentRanges(lines, contextLines)
-		for _, r := range ranges {
-			start := r[0]
-			end := r[1]
-			oldLnVal := hunk.FromLine + oldPrefix[start]
-			newLnVal := hunk.ToLine + newPrefix[start]
-			oldLn := oldLnVal
-			newLn := newLnVal
-			for i := start; i < end; i++ {
+		for _, r := range segmentDiffRanges(lines, contextLines) {
+			oldLn, newLn := hunk.FromLine+oldPrefix[r[0]], hunk.ToLine+newPrefix[r[0]]
+			for i := r[0]; i < r[1]; i++ {
 				line := lines[i]
 				content := strings.TrimSuffix(line.Content, "\n")
 				s := ""
 				switch line.Kind {
 				case gotextdiff.Insert:
-					n := styledLineNumber(&newLn, styleInsert, 4)
-					s = n + styleInsertPrefix.Sprint(" + ") + highlightLine(content, lexer)
+					s = styledLineNumber(&newLn, styleIns, 4) + styleInsPre.Sprint(" + ") + highlightLine(content, lexer)
 					newLn++
 				case gotextdiff.Delete:
-					n := styledLineNumber(&oldLn, styleDelete, 4)
-					s = n + styleDeletePrefix.Sprint(" - ") + highlightLine(content, lexer)
+					s = styledLineNumber(&oldLn, styleDel, 4) + styleDelPre.Sprint(" - ") + highlightLine(content, lexer)
 					oldLn++
 				default:
-					n := styledLineNumber(&oldLn, nil, 4)
-					s = n + "   " + highlightLine(content, lexer)
-					oldLn++
-					newLn++
+					s = styledLineNumber(&oldLn, nil, 4) + "   " + highlightLine(content, lexer)
+					oldLn++; newLn++
 				}
 				out = append(out, s)
 			}
