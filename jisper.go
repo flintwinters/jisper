@@ -290,7 +290,7 @@ func renderJinjaTemplate(templateText string, context map[string]any) string {
 	return templateText
 }
 
-func buildJinjaContext(promptConfig map[string]any, sourceText string, userTask string, systemPrompt string) map[string]any {
+func buildJinjaContext(promptConfig map[string]any, sourceText, userTask, systemPrompt string) map[string]any {
 	ctx := map[string]any{}
 	for k, v := range promptConfig {
 		ctx[k] = v
@@ -677,7 +677,7 @@ func repoFromDir(baseDir string) (string, bool) {
 	}
 }
 
-func runCmd(dir string, name string, args ...string) (string, string, int) {
+func runCmd(dir, name string, args ...string) (string, string, int) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	var outBuf bytes.Buffer
@@ -968,9 +968,9 @@ func run(configPath string, routineName string, debug bool, noModel bool) (Model
 	pl, promptContent := buildPayload(config, sourceMaterial, routineName, endpointURL)
 
 	if debug {
-		_, _ = fmt.Fprintln(os.Stdout, "\n--- PROMPT (user message content) ---\n")
+		_, _ = fmt.Fprintln(os.Stdout, "\n--- PROMPT (user message content) ---")
 		_, _ = fmt.Fprintln(os.Stdout, promptContent)
-		_, _ = fmt.Fprintln(os.Stdout, "\n--- END PROMPT ---\n")
+		_, _ = fmt.Fprintln(os.Stdout, "--- END PROMPT ---")
 	}
 
 	if noModel {
