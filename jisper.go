@@ -71,8 +71,8 @@ var ModelPricesUSDPer1M = map[string]Prices{
 	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
 	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
-}(config map[string]any) string {
-	model, ok := asNonEmptyStr(config["model"])
+}
+	func getModelCode(config map[string]any) string {
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Missing required config key: model")
 		os.Exit(2)
