@@ -618,7 +618,7 @@ func guessLexer(text string, filename string, language string) string {
 }
 
 func syntaxText(text string, lexer string) string {
-	out, _ := pterm.DefaultSyntaxHighlighting.WithHighlightingLanguage(pterm.HighlightingLanguage(lexer)).Highlight(text)
+	out, _ := pterm.DefaultSyntaxHighlighting.Highlight(lexer, text)
 	return out
 }
 
@@ -637,7 +637,7 @@ func formatCombinedDiffLines(oldText, newText, filename, language string) []stri
 	lexer := guessLexer(oldText+newText, filename, language)
 	var out []string
 	for _, line := range strings.Split(strings.TrimSuffix(newText, "\n"), "\n") {
-		out = append(out, " + " + syntaxText(line, lexer))
+		out = append(out, " + "+syntaxText(line, lexer))
 	}
 	return out
 }
