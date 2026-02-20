@@ -30,128 +30,45 @@ const (
 	DefaultFallbackOutputUSDPer1M = 15.0
 )
 
-func asNonEmptyStr(v any) (string, bool) {
-	s, ok := v.(string)
-	if !ok {
-		return "", false
-	}
-	s = strings.TrimSpace(s)
+
+func resolveOnePath(v string, baseDir string) []string {
+	s := strings.TrimSpace(v)
 	if s == "" {
-		return "", false
+		return []string{}
 	}
-	return s, true
-}
-
-func asListOfNonEmptyStr(v any) []string {
-	xs, ok := v.([]any)
-	if !ok {
-		ss, ok := v.([]string)
-		if !ok {
-			return []string{}
-		}
-		return filterEmpty(ss)
-	}
-	out := make([]string, 0, len(xs))
-	for _, x := range xs {
-		if s, ok := asNonEmptyStr(x); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func filterEmpty(ss []string) []string {
-	out := make([]string, 0, len(ss))
-	for _, s := range ss {
-		if t := strings.TrimSpace(s); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-func dedupeKeepOrder(xs []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(xs))
-	for _, x := range xs {
-		if x == "" || seen[x] {
-			continue
-		}
-		seen[x] = true
-		out = append(out, x)
-	}
-	return out
-}
-
-func readTextOrNone(path string) (string, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
-func resolvePathsAndGlobs(values []string, baseDir string) []string {
-	one := func(v string) []string {
-		s := strings.TrimSpace(v)
-		if s == "" {
-			return []string{}
-		}
-		p := filepath.Join(baseDir, s)
-		st, err := os.Stat(p)
-		if err == nil && st.IsDir() {
-			ents, _ := os.ReadDir(p)
-			out := make([]string, 0)
-			for _, e := range ents {
-				if !e.IsDir() {
-					out = append(out, filepath.Join(s, e.Name()))
-				}
-			}
-			sort.Strings(out)
-			return out
-		}
-		if err == nil && !st.IsDir() {
-			return []string{s}
-		}
-		matches, _ := filepath.Glob(p)
+	p := filepath.Join(baseDir, s)
+	st, err := os.Stat(p)
+	if err == nil && st.IsDir() {
+		ents, _ := os.ReadDir(p)
 		out := make([]string, 0)
-		for _, m := range matches {
-			if mst, _ := os.Stat(m); mst != nil && !mst.IsDir() {
-				out = append(out, toRel(baseDir, m))
+		for _, e := range ents {
+			if !e.IsDir() {
+				out = append(out, filepath.Join(s, e.Name()))
 			}
 		}
 		sort.Strings(out)
 		return out
 	}
+	if err == nil && !st.IsDir() {
+		return []string{s}
+	}
+	matches, _ := filepath.Glob(p)
 	out := make([]string, 0)
-	for _, v := range values {
-		out = append(out, one(v)...)
+	for _, m := range matches {
+		if mst, _ := os.Stat(m); mst != nil && !mst.IsDir() {
+			out = append(out, toRel(baseDir, m))
+		}
 	}
-	return dedupeKeepOrder(out)
+	sort.Strings(out)
+	return out
 }
 
-func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]any {
-	m := map[string]any{"source_text": source, "task": task, "system_prompt": sys}
-	for k, v := range cfg {
-		m[k] = v
-	}
-	return m
+func resolvePathsAndGlobs(values []string, baseDir string) []string {
+	return dedupeKeepOrder(flatMapStr(values, func(v string) []string {
+		return resolveOnePath(v, baseDir)
+	}))
 }
 
-func render(tmpl string, ctx map[string]any) string {
-	for k, v := range ctx {
-		tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v))
-	}
-	return tmpl
-}
-
-func toRel(base, target string) string {
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return target
-	}
-	return rel
-}
 
 type Replacement struct {
 	Filename  string `json:"filename"`
@@ -288,7 +205,7 @@ func loadPromptFile(path string) (map[string]any, error) {
 func readAndConcatenateFiles(fileList []string, baseDir string, ctx map[string]any) string {
 	var res []string
 	for _, f := range fileList {
-		txt, ok := readTextOrNone(filepath.Join(baseDir, f))
+		txt, ok := readFileContent(baseDir, f)
 		if !ok {
 			continue
 		}
@@ -353,7 +270,7 @@ func selectContextFields(summary map[string]any, intentOnly bool) (map[string]an
 func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, _ map[string]any) string {
 	parts := []string{}
 	for _, filename := range files {
-		txt, ok := readTextOrNone(filepath.Join(baseDir, filename))
+		txt, ok := readFileContent(baseDir, filename)
 		if !ok {
 			continue
 		}
@@ -433,19 +350,9 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
 	}
-	systemPromptRaw, _ := asNonEmptyStr(promptConfig["system_prompt"])
-	projectPrompt, _ := asNonEmptyStr(promptConfig["project"])
-	systemPromptForCtx := systemPromptRaw
-	if projectPrompt != "" {
-		systemPromptForCtx = systemPromptForCtx + "\n\n" + projectPrompt
-	}
+	systemPromptForCtx := resolveSystemPrompt(promptConfig)
 
-	userTask := ""
-	if t, ok := resolveRoutineTask(promptConfig, routineName); ok {
-		userTask = t
-	} else if t, ok := asNonEmptyStr(promptConfig["task"]); ok {
-		userTask = t
-	}
+	userTask := resolveUserTask(promptConfig, routineName)
 
 	modelCode := getModelCode(promptConfig)
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
@@ -477,40 +384,6 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 	return pl, promptContent
 }
 
-func coerceInt(v any) *int {
-	switch x := v.(type) {
-	case float64:
-		i := int(x)
-		if float64(i) == x {
-			return &i
-		}
-		return nil
-	case int:
-		i := x
-		return &i
-	case json.Number:
-		i64, err := x.Int64()
-		if err != nil {
-			return nil
-		}
-		i := int(i64)
-		return &i
-	case string:
-		s := strings.TrimSpace(x)
-		if s == "" {
-			return nil
-		}
-		n := json.Number(s)
-		i64, err := n.Int64()
-		if err != nil {
-			return nil
-		}
-		i := int(i64)
-		return &i
-	default:
-		return nil
-	}
-}
 
 func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Usage {
 	usageAny := apiJSON["usage"]
@@ -916,7 +789,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
-		original, ok := readTextOrNone(targetPath)
+		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
 			pterm.DefaultHeader.WithFullWidth().Println(filename)
@@ -1217,18 +1090,8 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 		keyVar = "OPENROUTER_API_KEY"
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
-	sysRaw, _ := asNonEmptyStr(config["system_prompt"])
-	projPrompt, _ := asNonEmptyStr(config["project"])
-	sysCtx := sysRaw
-	if projPrompt != "" {
-		sysCtx = sysCtx + "\n\n" + projPrompt
-	}
-	userCtx := ""
-	if t, ok := resolveRoutineTask(config, routineName); ok {
-		userCtx = t
-	} else if t, ok := asNonEmptyStr(config["task"]); ok {
-		userCtx = t
-	}
+	sysCtx := resolveSystemPrompt(config)
+	userCtx := resolveUserTask(config, routineName)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
 	render, _ := config["render_source_files_as_jinja"].(bool)
 	var srcCtx map[string]any
