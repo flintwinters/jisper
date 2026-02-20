@@ -314,22 +314,95 @@ func readAndConcatenateFiles(fileList []string, baseDir string, jinjaContext map
 	return strings.Join(parts, "\n\n")
 }
 
+func extractFileSummaryYAML(text string) (map[string]any, bool) {
+	start := strings.Index(text, "[FILE SUMMARY]")
+	if start < 0 {
+		return nil, false
+	}
+	end := strings.Index(text[start:], "[/FILE SUMMARY]")
+	if end < 0 {
+		return nil, false
+	}
+	inner := strings.TrimSpace(text[start+len("[FILE SUMMARY]") : start+end])
+	if inner == "" {
+		return nil, false
+	}
+	var loaded map[string]any
+	if err := yaml.Unmarshal([]byte(inner), &loaded); err != nil {
+		return nil, false
+	}
+	return loaded, true
+}
+
+func selectContextFields(summary map[string]any, intentOnly bool) (map[string]any, bool) {
+	ctxAny, ok := summary["context"]
+	if !ok {
+		return nil, false
+	}
+	ctx, ok := ctxAny.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	intent := ctx["INTENT"]
+	structural := ctx["STRUCTURAL"]
+	if intentOnly {
+		if intent == nil {
+			return nil, false
+		}
+		return map[string]any{"context": map[string]any{"INTENT": intent}}, true
+	}
+	out := map[string]any{}
+	if intent != nil {
+		out["INTENT"] = intent
+	}
+	if structural != nil {
+		out["STRUCTURAL"] = structural
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return map[string]any{"context": out}, true
+}
+
+func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, jinjaContext map[string]any) string {
+	parts := []string{}
+	for _, filename := range files {
+		txt, ok := readTextOrNone(filepath.Join(baseDir, filename))
+		if !ok {
+			continue
+		}
+		summary, ok := extractFileSummaryYAML(txt)
+		if !ok {
+			continue
+		}
+		selected, ok := selectContextFields(summary, intentOnly)
+		if !ok {
+			continue
+		}
+		dumped, _ := yaml.Marshal(selected)
+		if len(dumped) > 0 {
+			parts = append(parts, fmt.Sprintf("--- FILENAME: %s ---\n%s", filename, strings.TrimSpace(string(dumped))))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func buildSourceMaterial(promptConfig map[string]any, baseDir string, jinjaContext map[string]any) string {
 	includes := resolveIncludedFiles(promptConfig, baseDir)
 
 	fullText := strings.TrimSpace(readAndConcatenateFiles(includes.FullFiles, baseDir, jinjaContext))
-	structText := strings.TrimSpace(readAndConcatenateFiles(includes.StructuralLevelFiles, baseDir, jinjaContext))
-	inputText := strings.TrimSpace(readAndConcatenateFiles(includes.InputLevelFiles, baseDir, jinjaContext))
+	structText := strings.TrimSpace(buildFileSummariesSection(includes.StructuralLevelFiles, baseDir, false, jinjaContext))
+	inputText := strings.TrimSpace(buildFileSummariesSection(includes.InputLevelFiles, baseDir, true, jinjaContext))
 
 	parts := []string{}
 	if fullText != "" {
 		parts = append(parts, fullText)
 	}
 	if structText != "" {
-		parts = append(parts, "STRUCTURAL_LEVEL_FILES (FULL TEXT; summaries not yet implemented):\n"+structText)
+		parts = append(parts, "STRUCTURAL_LEVEL_FILES (SUMMARIES ONLY):\n"+structText)
 	}
 	if inputText != "" {
-		parts = append(parts, "INPUT_LEVEL_FILES (FULL TEXT; summaries not yet implemented):\n"+inputText)
+		parts = append(parts, "INPUT_LEVEL_FILES (SUMMARIES ONLY):\n"+inputText)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
@@ -977,9 +1050,17 @@ func main() {
 			}
 
 			promptPath := c.String("prompt")
+			if !c.IsSet("prompt") && c.NArg() > 0 {
+				// If first arg is a file that exists, use it as prompt
+				if _, err := os.Stat(c.Args().Get(0)); err == nil {
+					promptPath = c.Args().Get(0)
+				}
+			}
 			routineName := ""
-			if c.NArg() > 0 {
+			if c.NArg() > 0 && c.Args().Get(0) != promptPath {
 				routineName = c.Args().Get(0)
+			} else if c.NArg() > 1 {
+				routineName = c.Args().Get(1)
 			}
 
 			mr, usage, modelCode, config := run(promptPath, routineName, c.Bool("debug"), c.Bool("no-model"))
