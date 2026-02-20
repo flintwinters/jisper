@@ -677,9 +677,7 @@ func printNumberedCombinedDiff(oldText, newText, filename, language string) {
 }
 
 func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
-	import "github.com/hexops/gotextdiff"
-	import "github.com/hexops/gotextdiff/myers"
-	import "github.com/hexops/gotextdiff/span"
+
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := fmt.Sprint(gotextdiff.ToUnified("a", "b", oldText, edits))
 	lines := strings.Split(diff, "\n")
