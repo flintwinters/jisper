@@ -686,37 +686,28 @@ func printNumberedCombinedDiff(oldText, newText, filename, language string) {
 
 func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
-	diff := fmt.Sprint(gotextdiff.ToUnified("a", "b", oldText, edits))
-	lines := strings.Split(diff, "\n")
-	if len(lines) < 3 {
-		return []string{}
-	}
+	diff := gotextdiff.ToUnified("a", "b", oldText, edits)
 	lexer := guessLexer(oldText+newText, filename, language)
-	red := pterm.NewStyle(pterm.FgLightRed, pterm.BgBlack)
-	green := pterm.NewStyle(pterm.FgLightGreen, pterm.BgBlack)
+	red := pterm.NewStyle(pterm.FgLightRed)
+	green := pterm.NewStyle(pterm.FgLightGreen)
 	var out []string
 	oldLn, newLn := 0, 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") || line == "" {
-			continue
-		}
-		if l, n, ok := parseUnifiedHunkHeader(line); ok {
-			oldLn, newLn = l, n
-			continue
-		}
-		prefix := line[:1]
-		body := line[1:]
-		switch prefix {
-		case " ":
-			out = append(out, styledLineNumber(&oldLn, nil, 4)+"   "+syntaxText(body, lexer))
-			oldLn++
-			newLn++
-		case "-":
-			out = append(out, styledLineNumber(&oldLn, red, 4)+" - "+syntaxText(body, lexer))
-			oldLn++
-		case "+":
-			out = append(out, styledLineNumber(&newLn, green, 4)+" + "+syntaxText(body, lexer))
-			newLn++
+	for _, hunk := range diff.Hunks {
+		oldLn = hunk.FromLine
+		newLn = hunk.ToLine
+		for _, line := range hunk.Lines {
+			switch line.Kind {
+			case gotextdiff.Insert:
+				out = append(out, styledLineNumber(&newLn, green, 4)+" + "+syntaxText(line.Content, lexer))
+				newLn++
+			case gotextdiff.Delete:
+				out = append(out, styledLineNumber(&oldLn, red, 4)+" - "+syntaxText(line.Content, lexer))
+				oldLn++
+			default:
+				out = append(out, styledLineNumber(&oldLn, nil, 4)+"   "+syntaxText(line.Content, lexer))
+				oldLn++
+				newLn++
+			}
 		}
 	}
 	return out
@@ -734,7 +725,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readTextOrNone(targetPath)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			pterm.DefaultSection.Println(filename)
+			pterm.DefaultSection.WithLevel(2).Println(filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
@@ -753,7 +744,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
-		pterm.DefaultSection.Println(filename)
+		pterm.DefaultSection.WithLevel(2).Println(filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
