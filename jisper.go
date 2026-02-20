@@ -630,12 +630,186 @@ func guessLexer(text string, filename string, language string) string {
 	return "text"
 }
 
-func syntaxText(text string, lexer string) string {
-	if lexer == "text" {
-		return text
+var styleKeyword = pterm.NewStyle(pterm.FgLightBlue)
+var styleString = pterm.NewStyle(pterm.FgYellow)
+var styleNumber = pterm.NewStyle(pterm.FgLightMagenta)
+var styleComment = pterm.NewStyle(pterm.FgGray)
+
+func isLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+func isWordChar(b byte) bool { return isLetter(b) || isDigit(b) || b == '_' }
+
+func keywordSetForLexer(lexer string) map[string]bool {
+	if lexer == "go" {
+		return map[string]bool{
+			"break": true, "case": true, "chan": true, "const": true, "continue": true, "default": true, "defer": true, "else": true,
+			"fallthrough": true, "for": true, "func": true, "go": true, "goto": true, "if": true, "import": true, "interface": true,
+			"map": true, "package": true, "range": true, "return": true, "select": true, "struct": true, "switch": true, "type": true, "var": true,
+		}
 	}
-	out, _ := pterm.DefaultBox.WithTitle(lexer).Sprint(text)
-	return out
+	if lexer == "python" {
+		return map[string]bool{
+			"and": true, "as": true, "assert": true, "break": true, "class": true, "continue": true, "def": true, "del": true,
+			"elif": true, "else": true, "except": true, "False": true, "finally": true, "for": true, "from": true, "global": true,
+			"if": true, "import": true, "in": true, "is": true, "lambda": true, "None": true, "nonlocal": true, "not": true,
+			"or": true, "pass": true, "raise": true, "return": true, "True": true, "try": true, "while": true, "with": true, "yield": true,
+		}
+	}
+	if lexer == "javascript" || lexer == "typescript" {
+		return map[string]bool{
+			"break": true, "case": true, "catch": true, "class": true, "const": true, "continue": true, "debugger": true, "default": true,
+			"delete": true, "do": true, "else": true, "export": true, "extends": true, "finally": true, "for": true, "function": true,
+			"if": true, "import": true, "in": true, "instanceof": true, "let": true, "new": true, "return": true, "super": true,
+			"switch": true, "this": true, "throw": true, "try": true, "typeof": true, "var": true, "void": true, "while": true, "with": true,
+			"yield": true,
+		}
+	}
+	return map[string]bool{}
+}
+
+func splitLineComment(line string, lexer string) (string, string) {
+	marker := ""
+	if lexer == "go" || lexer == "javascript" || lexer == "typescript" {
+		marker = "//"
+	}
+	if lexer == "python" || lexer == "yaml" || lexer == "bash" {
+		marker = "#"
+	}
+	if marker == "" {
+		return line, ""
+	}
+	quote := byte(0)
+	escape := false
+	for i := 0; i < len(line); i++ {
+		b := line[i]
+		if quote != 0 {
+			if quote != '`' {
+				if escape {
+					escape = false
+					continue
+				}
+				if b == '\\' {
+					escape = true
+					continue
+				}
+			}
+			if b == quote {
+				quote = 0
+			}
+			continue
+		}
+		if b == '\'' || b == '"' || b == '`' {
+			quote = b
+			continue
+		}
+		if marker == "#" {
+			if b == '#' {
+				return line[:i], line[i:]
+			}
+			continue
+		}
+		if marker == "//" {
+			if i+1 < len(line) && line[i:i+2] == "//" {
+				return line[:i], line[i:]
+			}
+		}
+	}
+	return line, ""
+}
+
+func highlightLine(line string, lexer string) string {
+	line = strings.TrimSuffix(line, "\n")
+	if lexer == "" || lexer == "text" || lexer == "diff" || lexer == "markdown" {
+		return line
+	}
+	code, comment := splitLineComment(line, lexer)
+	keywords := keywordSetForLexer(lexer)
+	var out strings.Builder
+	quote := byte(0)
+	escape := false
+	wordStart := -1
+	numberStart := -1
+	flushWord := func(i int) {
+		if wordStart < 0 {
+			return
+		}
+		w := code[wordStart:i]
+		if keywords[w] {
+			out.WriteString(styleKeyword.Sprint(w))
+		} else {
+			out.WriteString(w)
+		}
+		wordStart = -1
+	}
+	flushNumber := func(i int) {
+		if numberStart < 0 {
+			return
+		}
+		out.WriteString(styleNumber.Sprint(code[numberStart:i]))
+		numberStart = -1
+	}
+	for i := 0; i < len(code); i++ {
+		b := code[i]
+		if quote != 0 {
+			flushWord(i)
+			flushNumber(i)
+			if quote != '`' {
+				if escape {
+					escape = false
+					continue
+				}
+				if b == '\\' {
+					escape = true
+					continue
+				}
+			}
+			if b == quote {
+				out.WriteString(styleString.Sprint(code[i : i+1]))
+				quote = 0
+				continue
+			}
+			out.WriteString(styleString.Sprint(code[i : i+1]))
+			continue
+		}
+		if b == '\'' || b == '"' || b == '`' {
+			flushWord(i)
+			flushNumber(i)
+			quote = b
+			out.WriteString(styleString.Sprint(code[i : i+1]))
+			continue
+		}
+		if wordStart >= 0 {
+			if isWordChar(b) {
+				continue
+			}
+			flushWord(i)
+		}
+		if numberStart >= 0 {
+			if isDigit(b) || b == '.' || b == '_' {
+				continue
+			}
+			flushNumber(i)
+		}
+		if isLetter(b) || b == '_' {
+			wordStart = i
+			continue
+		}
+		if isDigit(b) {
+			numberStart = i
+			continue
+		}
+		out.WriteByte(b)
+	}
+	flushWord(len(code))
+	flushNumber(len(code))
+	if comment != "" {
+		out.WriteString(styleComment.Sprint(comment))
+	}
+	return out.String()
 }
 
 func parseUnifiedHunkHeader(line string) (int, int, bool) {
@@ -674,9 +848,9 @@ func styledLineNumber(ln *int, style *pterm.Style, width int) string {
 }
 
 func printNumberedCombinedDiff(oldText, newText, filename, language string) {
-	diffLines := formatCombinedDiffLines(oldText, newText, filename, language)
+	diffLines := formatCombinedDiffLines(oldText, newText, filename, language, 2)
 	if len(diffLines) == 0 {
-		pterm.Warning.Println("(no diff; content is identical)")
+		fmt.Println("(no diff; content is identical)")
 		return
 	}
 	for _, line := range diffLines {
@@ -684,29 +858,101 @@ func printNumberedCombinedDiff(oldText, newText, filename, language string) {
 	}
 }
 
-func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
+func formatCombinedDiffLines(oldText, newText, filename, language string, contextLines int) []string {
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := gotextdiff.ToUnified("a", "b", oldText, edits)
-	lexer := guessLexer(oldText+newText, filename, language)
-	red := pterm.NewStyle(pterm.FgLightRed)
-	green := pterm.NewStyle(pterm.FgLightGreen)
-	var out []string
-	oldLn, newLn := 0, 0
+	lexer := guessLexer(oldText+"\n"+newText, filename, language)
+	styleDelete := pterm.NewStyle(pterm.FgLightRed, pterm.BgRed)
+	styleInsert := pterm.NewStyle(pterm.FgLightGreen, pterm.BgGreen)
+	styleDeletePrefix := pterm.NewStyle(pterm.FgLightRed)
+	styleInsertPrefix := pterm.NewStyle(pterm.FgLightGreen)
+
+	segmentRanges := func(lines []gotextdiff.Line, context int) [][2]int {
+		changes := make([]bool, len(lines))
+		for i, line := range lines {
+			if line.Kind != gotextdiff.Equal {
+				changes[i] = true
+			}
+		}
+		ranges := make([][2]int, 0, 4)
+		i := 0
+		for i < len(lines) {
+			for i < len(lines) && !changes[i] {
+				i++
+			}
+			if i >= len(lines) {
+				break
+			}
+			start := i - context
+			if start < 0 {
+				start = 0
+			}
+			end := i + context + 1
+			j := i + 1
+			for j < len(lines) {
+				if changes[j] {
+					end = j + context + 1
+				}
+				if j >= end {
+					break
+				}
+				j++
+			}
+			if end > len(lines) {
+				end = len(lines)
+			}
+			ranges = append(ranges, [2]int{start, end})
+			i = end
+		}
+		return ranges
+	}
+
+	out := []string{}
 	for _, hunk := range diff.Hunks {
-		oldLn = hunk.FromLine
-		newLn = hunk.ToLine
-		for _, line := range hunk.Lines {
-			switch line.Kind {
-			case gotextdiff.Insert:
-				out = append(out, styledLineNumber(&newLn, green, 4)+" + "+syntaxText(line.Content, lexer))
-				newLn++
-			case gotextdiff.Delete:
-				out = append(out, styledLineNumber(&oldLn, red, 4)+" - "+syntaxText(line.Content, lexer))
-				oldLn++
-			default:
-				out = append(out, styledLineNumber(&oldLn, nil, 4)+"   "+syntaxText(line.Content, lexer))
-				oldLn++
-				newLn++
+		lines := hunk.Lines
+		if len(lines) == 0 {
+			continue
+		}
+		oldPrefix := make([]int, len(lines)+1)
+		newPrefix := make([]int, len(lines)+1)
+		for i, line := range lines {
+			oldPrefix[i+1] = oldPrefix[i]
+			newPrefix[i+1] = newPrefix[i]
+			if line.Kind != gotextdiff.Insert {
+				oldPrefix[i+1]++
+			}
+			if line.Kind != gotextdiff.Delete {
+				newPrefix[i+1]++
+			}
+		}
+		ranges := segmentRanges(lines, contextLines)
+		for _, r := range ranges {
+			start := r[0]
+			end := r[1]
+			oldLnVal := hunk.FromLine + oldPrefix[start]
+			newLnVal := hunk.ToLine + newPrefix[start]
+			oldLn := oldLnVal
+			newLn := newLnVal
+			for i := start; i < end; i++ {
+				line := lines[i]
+				content := strings.TrimSuffix(line.Content, "\n")
+				s := ""
+				switch line.Kind {
+				case gotextdiff.Insert:
+					n := styledLineNumber(&newLn, styleInsert, 4)
+					s = n + styleInsertPrefix.Sprint(" + ") + highlightLine(content, lexer)
+					newLn++
+				case gotextdiff.Delete:
+					n := styledLineNumber(&oldLn, styleDelete, 4)
+					s = n + styleDeletePrefix.Sprint(" - ") + highlightLine(content, lexer)
+					oldLn++
+				default:
+					n := styledLineNumber(&oldLn, nil, 4)
+					s = n + "   " + highlightLine(content, lexer)
+					oldLn++
+					newLn++
+				}
+				out = append(out, s)
 			}
 		}
 	}
@@ -725,7 +971,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readTextOrNone(targetPath)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			pterm.DefaultSection.WithLevel(2).Println(filename)
+			fmt.Printf("\n%s\n", filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
@@ -744,7 +990,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
-		pterm.DefaultSection.WithLevel(2).Println(filename)
+		fmt.Printf("\n%s\n", filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
