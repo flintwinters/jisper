@@ -282,46 +282,30 @@ func loadPromptFile(path string) (map[string]any, error) {
 	return cfg, nil
 }
 
-func renderJinjaTemplate(templateText string, context map[string]any) string {
-	for k, v := range context {
-		placeholder := "{{" + k + "}}"
-		templateText = strings.ReplaceAll(templateText, placeholder, fmt.Sprintf("%v", v))
+func render(tmpl string, ctx map[string]any) string {
+	for k, v := range ctx {
+		tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v))
 	}
-	return templateText
+	return tmpl
 }
 
-func buildJinjaContext(promptConfig map[string]any, sourceText, userTask, systemPrompt string) map[string]any {
-	ctx := map[string]any{}
-	for k, v := range promptConfig {
-		ctx[k] = v
+func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]any {
+	m := map[string]any{"source_text": source, "task": task, "system_prompt": sys}
+	for k, v := range cfg {
+		m[k] = v
 	}
-	ctx["source_text"] = sourceText
-	ctx["task"] = userTask
-	ctx["system_prompt"] = systemPrompt
-	ctx["error_message"] = promptConfig["error"]
-	ctx["build_stdout"] = promptConfig["build_stdout"]
-	ctx["build_stderr"] = promptConfig["build_stderr"]
-	ctx["success"] = promptConfig["success"]
-	ctx["error"] = promptConfig["error"]
-	return ctx
+	return m
 }
 
-func readAndConcatenateFiles(fileList []string, baseDir string, jinjaContext map[string]any) string {
-	parts := make([]string, 0, len(fileList))
-	for _, filename := range fileList {
-		p := filepath.Join(baseDir, filename)
-		txt, ok := readTextOrNone(p)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Missing input file: %s\n", filename)
-			continue
-		}
-		rendered := txt
-		if jinjaContext != nil {
-			rendered = renderJinjaTemplate(txt, jinjaContext)
-		}
-		parts = append(parts, fmt.Sprintf("--- FILENAME: %s ---\n%s", filename, rendered))
+func readAndConcatenateFiles(fileList []string, baseDir string, ctx map[string]any) string {
+	var res []string
+	for _, f := range fileList {
+		txt, ok := readTextOrNone(filepath.Join(baseDir, f))
+		if !ok { continue }
+		if ctx != nil { txt = render(txt, ctx) }
+		res = append(res, fmt.Sprintf("--- FILENAME: %s ---\n%s", f, txt))
 	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(res, "\n\n")
 }
 
 func extractFileSummaryYAML(text string) (map[string]any, bool) {
@@ -473,8 +457,8 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 
 	modelCode := getModelCode(promptConfig)
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
-	renderedSystem := renderJinjaTemplate(systemPromptForCtx, ctx)
-	renderedTask := renderJinjaTemplate(userTask, ctx)
+	renderedSystem := render(systemPromptForCtx, ctx)
+	renderedTask := render(userTask, ctx)
 
 	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
 		renderedSystem, renderedTask, sourceText)
