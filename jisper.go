@@ -73,8 +73,6 @@ var ModelPricesUSDPer1M = map[string]Prices{
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
 }
 
-
-
 func getModelCode(config map[string]any) string {
 	model, ok := asNonEmptyStr(config["model"])
 	if !ok {
@@ -103,8 +101,6 @@ func resolveRoutineTask(config map[string]any, routineName string) (string, bool
 	}
 	return asNonEmptyStr(taskAny)
 }
-
-
 
 func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	fullRaw := asListOfNonEmptyStr(config["full_files"])
@@ -165,8 +161,6 @@ func loadPromptFile(path string) (map[string]any, error) {
 	}
 	return cfg, nil
 }
-
-
 
 func readAndConcatenateFiles(fileList []string, baseDir string, ctx map[string]any) string {
 	var res []string
@@ -511,17 +505,37 @@ func isWordChar(b byte) bool { return isLetter(b) || isDigit(b) || b == '_' }
 func keywordSetForLexer(lexer string) map[string]bool {
 	if lexer == "go" {
 		return map[string]bool{
-			"break": true, "case": true, "chan": true, "const": true, "continue": true, "default": true, "defer": true, "else": true, "fallthrough": true, "for": true, "func": true, "go": true, "goto": true, "if": true, "import": true, "interface": true, "map": true, "package": true, "range": true, "return": true, "select": true, "struct": true, "switch": true, "type": true, "var": true,
+			"break": true, "case": true, "chan": true, "const": true,
+			"continue": true, "default": true, "defer": true, "else": true,
+			"fallthrough": true, "for": true, "func": true, "go": true,
+			"goto": true, "if": true, "import": true, "interface": true,
+			"map": true, "package": true, "range": true, "return": true,
+			"select": true, "struct": true, "switch": true, "type": true,
+			"var": true,
 		}
 	}
 	if lexer == "python" {
 		return map[string]bool{
-			"elif": true, "else": true, "except": true, "False": true, "finally": true, "for": true, "from": true, "global": true, "if": true, "import": true, "in": true, "is": true, "lambda": true, "None": true, "nonlocal": true, "not": true, "or": true, "pass": true, "raise": true, "return": true, "True": true, "try": true, "while": true, "with": true, "yield": true,
+			"elif": true, "else": true, "except": true, "False": true,
+			"finally": true, "for": true, "from": true, "global": true,
+			"if": true, "import": true, "in": true, "is": true,
+			"lambda": true, "None": true, "nonlocal": true, "not": true,
+			"or": true, "pass": true, "raise": true, "return": true,
+			"True": true, "try": true, "while": true, "with": true,
+			"yield": true,
 		}
 	}
 	if lexer == "javascript" || lexer == "typescript" {
 		return map[string]bool{
-			"break": true, "case": true, "catch": true, "class": true, "const": true, "continue": true, "debugger": true, "default": true, "delete": true, "do": true, "else": true, "export": true, "extends": true, "finally": true, "for": true, "function": true, "if": true, "import": true, "in": true, "instanceof": true, "let": true, "new": true, "return": true, "super": true, "switch": true, "this": true, "throw": true, "try": true, "typeof": true, "var": true, "void": true, "while": true, "with": true, "yield": true,
+			"break": true, "case": true, "catch": true, "class": true,
+			"const": true, "continue": true, "debugger": true, "default": true,
+			"delete": true, "do": true, "else": true, "export": true,
+			"extends": true, "finally": true, "for": true, "function": true,
+			"if": true, "import": true, "in": true, "instanceof": true,
+			"let": true, "new": true, "return": true, "super": true,
+			"switch": true, "this": true, "throw": true, "try": true,
+			"typeof": true, "var": true, "void": true, "while": true,
+			"with": true, "yield": true,
 		}
 	}
 	return map[string]bool{}
@@ -570,7 +584,7 @@ func splitLineComment(line string, lexer string) (string, string) {
 	return line, ""
 }
 
-func processChar(b byte, i int, code string, state *lexerState) {
+func processChar(b byte, i int, state *lexerState) {
 	if state.quote != 0 {
 		state.flushWord(i)
 		state.flushNumber(i)
@@ -647,7 +661,7 @@ func highlightCode(code string, lexer string, out *strings.Builder) {
 		state.numberStart = -1
 	}
 	for i := 0; i < len(code); i++ {
-		processChar(code[i], i, code, state)
+		processChar(code[i], i, state)
 	}
 	state.flushWord(len(code))
 	state.flushNumber(len(code))
