@@ -14,15 +14,15 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
-	"github.com/urfave/cli/v2"
-	"gopkg.in/yaml.v3"
+	cli "github.com/urfave/cli"
+	yaml "go.yaml.in/yaml/v4"
 )
 
 const (
-	DefaultPromptFile            = "prompt.yaml"
-	DefaultAPIKeyEnvVar          = "OPENAI_API_KEY"
-	DefaultURL                   = "https://api.openai.com/v1/chat/completions"
-	DefaultFallbackInputUSDPer1M = 5.0
+	DefaultPromptFile             = "prompt.yaml"
+	DefaultAPIKeyEnvVar           = "OPENAI_API_KEY"
+	DefaultURL                    = "https://api.openai.com/v1/chat/completions"
+	DefaultFallbackInputUSDPer1M  = 5.0
 	DefaultFallbackOutputUSDPer1M = 15.0
 )
 
@@ -63,10 +63,10 @@ type Prices struct {
 var ModelPricesUSDPer1M = map[string]Prices{
 	"gpt-5.2":                   {InUSDPer1M: 5.0, OutUSDPer1M: 15.0},
 	"gpt-5-mini":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.0},
-	"qwen/qwen3-coder:exacto":    {InUSDPer1M: 0.22, OutUSDPer1M: 1.8},
-	"moonshotai/kimi-k2.5":       {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
-	"z-ai/glm-5":                 {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
-	"openai/gpt-oss-120b:nitro":  {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
+	"qwen/qwen3-coder:exacto":   {InUSDPer1M: 0.22, OutUSDPer1M: 1.8},
+	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
+	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
+	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
 }
 
 func asNonEmptyStr(v any) (string, bool) {
@@ -277,6 +277,10 @@ func loadPromptFile(path string) (map[string]any, error) {
 }
 
 func renderJinjaTemplate(templateText string, context map[string]any) string {
+	for k, v := range context {
+		placeholder := "{{" + k + "}}"
+		templateText = strings.ReplaceAll(templateText, placeholder, fmt.Sprintf("%v", v))
+	}
 	return templateText
 }
 
@@ -437,9 +441,9 @@ type message struct {
 }
 
 type payload struct {
-	Model          string           `json:"model"`
-	Messages       []message        `json:"messages"`
-	ResponseFormat map[string]any   `json:"response_format,omitempty"`
+	Model          string         `json:"model"`
+	Messages       []message      `json:"messages"`
+	ResponseFormat map[string]any `json:"response_format,omitempty"`
 }
 
 func buildPayload(promptConfig map[string]any, sourceText string, routineName string, endpointURL string) (payload, string) {
@@ -583,7 +587,7 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	trimmedOld = strings.TrimSpace(oldString)
 	if strippedOriginal != "" && trimmedOld != "" && strings.Contains(strippedOriginal, trimmedOld) {
 		leading := original[:len(original)-len(strings.TrimLeft(original, " \t\n\r"))]
-		trailing := original[len(strings.TrimRight(original, " \t\n\r")):] 
+		trailing := original[len(strings.TrimRight(original, " \t\n\r")):]
 		replacedCore := strings.ReplaceAll(strippedOriginal, trimmedOld, newString)
 		return leading + replacedCore + trailing, trimmedOld, true
 	}
@@ -1009,20 +1013,18 @@ func main() {
 		Name:  "jisper",
 		Usage: "CLI for Jisper",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "prompt",
-				Aliases: []string{"p"},
-				Value:   DefaultPromptFile,
-				Usage:   "Path to prompt/config file",
+			cli.StringFlag{
+				Name:  "prompt, p",
+				Value: DefaultPromptFile,
+				Usage: "Path to prompt/config file",
 			},
-			&cli.BoolFlag{
+			cli.BoolFlag{
 				Name:  "new",
 				Usage: "Copy bundled default prompt into CWD (not implemented in Go scaffold)",
 			},
-			&cli.BoolFlag{
-				Name:    "undo",
-				Aliases: []string{"u"},
-				Usage:   "Undo last git commit (hard reset to HEAD~1)",
+			cli.BoolFlag{
+				Name:  "undo, u",
+				Usage: "Undo last git commit (hard reset to HEAD~1)",
 			},
 			&cli.BoolFlag{
 				Name:  "redo",
@@ -1040,7 +1042,8 @@ func main() {
 		Action: func(c *cli.Context) error {
 			if c.Bool("new") {
 				fmt.Fprintln(os.Stderr, "--new is not implemented in Go scaffold")
-				return cli.Exit("", 1)
+				os.Exit(1)
+				return nil
 			}
 			if c.Bool("redo") {
 				os.Exit(redoLastCommit("."))
