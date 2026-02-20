@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -879,59 +880,83 @@ func estimateCostUSD(modelCode string, usage Usage) *float64 {
 }
 
 func main() {
-	promptPath := flag.String("prompt", DefaultPromptFile, "Path to prompt/config file")
-	promptPathShort := flag.String("p", DefaultPromptFile, "Path to prompt/config file")
-	newFlag := flag.Bool("new", false, "Copy bundled default prompt into CWD (not implemented in Go scaffold)")
-	undoFlag := flag.Bool("undo", false, "Undo last git commit (hard reset to HEAD~1)")
-	undoFlagShort := flag.Bool("u", false, "Undo last git commit (hard reset to HEAD~1)")
-	redoFlag := flag.Bool("redo", false, "Redo last undo (hard reset to ORIG_HEAD)")
-	debugFlag := flag.Bool("debug", false, "Print the prompt content before sending")
-	noModelFlag := flag.Bool("no-model", false, "Stop before API request")
-	flag.Parse()
+	app := &cli.App{
+		Name:  "jisper",
+		Usage: "CLI for Jisper",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "prompt",
+				Aliases: []string{"p"},
+				Value:   DefaultPromptFile,
+				Usage:   "Path to prompt/config file",
+			},
+			&cli.BoolFlag{
+				Name:  "new",
+				Usage: "Copy bundled default prompt into CWD (not implemented in Go scaffold)",
+			},
+			&cli.BoolFlag{
+				Name:    "undo",
+				Aliases: []string{"u"},
+				Usage:   "Undo last git commit (hard reset to HEAD~1)",
+			},
+			&cli.BoolFlag{
+				Name:  "redo",
+				Usage: "Redo last undo (hard reset to ORIG_HEAD)",
+			},
+			&cli.BoolFlag{
+				Name:  "debug",
+				Usage: "Print the prompt content before sending",
+			},
+			&cli.BoolFlag{
+				Name:  "no-model",
+				Usage: "Stop before API request",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			if c.Bool("new") {
+				fmt.Fprintln(os.Stderr, "--new is not implemented in Go scaffold")
+				return cli.Exit("", 1)
+			}
+			if c.Bool("redo") {
+				os.Exit(redoLastCommit("."))
+			}
+			if c.Bool("undo") {
+				os.Exit(undoLastCommit("."))
+			}
 
-	cfgPath := *promptPath
-	if *promptPathShort != DefaultPromptFile || cfgPath == DefaultPromptFile {
-		cfgPath = *promptPathShort
+			promptPath := c.String("prompt")
+			routineName := ""
+			if c.NArg() > 0 {
+				routineName = c.Args().Get(0)
+			}
+
+			mr, usage, modelCode, config := run(promptPath, routineName, c.Bool("debug"), c.Bool("no-model"))
+			changed := applyReplacements(mr.Edit.Replacements, ".")
+
+			commitMessage := strings.TrimSpace(mr.Edit.CommitMessage)
+			if commitMessage == "" {
+				commitMessage = "Apply model edits"
+			}
+			fmt.Printf("\nCommit message: %s\n\n", commitMessage)
+
+			if cost := estimateCostUSD(modelCode, usage); cost != nil {
+				fmt.Printf("$%.4f\n", *cost)
+			}
+
+			repoRoot := initRepoIfMissing(".")
+			if len(changed) == 0 {
+				fmt.Println("No files changed; skipping commit")
+				return nil
+			}
+			stageAndCommit(repoRoot, changed, commitMessage)
+
+			_ = runBuildStep(config, promptPath)
+			return nil
+		},
 	}
 
-	cwd, _ := os.Getwd()
-	if *undoFlag || *undoFlagShort {
-		os.Exit(undoLastCommit(cwd))
-	}
-	if *redoFlag {
-		os.Exit(redoLastCommit(cwd))
-	}
-	if *newFlag {
-		fmt.Fprintln(os.Stderr, "--new is not implemented in Go scaffold")
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
-	routineName := ""
-	args := flag.Args()
-	if len(args) > 0 {
-		routineName = args[0]
-	}
-
-	mr, usage, modelCode, config := run(cfgPath, routineName, *debugFlag, *noModelFlag)
-	changed := applyReplacements(mr.Edit.Replacements, cwd)
-
-	commitMessage := strings.TrimSpace(mr.Edit.CommitMessage)
-	if commitMessage == "" {
-		commitMessage = "Apply model edits"
-	}
-	fmt.Printf("\nCommit message: %s\n\n", commitMessage)
-
-	if cost := estimateCostUSD(modelCode, usage); cost != nil {
-		fmt.Printf("$%.4f\n", *cost)
-	}
-
-	repoRoot := initRepoIfMissing(cwd)
-	if len(changed) == 0 {
-		fmt.Println("No files changed; skipping commit")
-		return
-	}
-	stageAndCommit(repoRoot, changed, commitMessage)
-
-	_ = config
-	_ = runBuildStep(config, cfgPath)
 }
