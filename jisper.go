@@ -173,6 +173,9 @@ func toRel(baseDir string, p string) string {
 }
 
 func resolvePathsAndGlobs(values []string, baseDir string) []string {
+	if os.Getenv("JISPER_DEBUG") != "" {
+		fmt.Printf("DEBUG: resolving for baseDir %s with values %v\n", baseDir, values)
+	}
 	one := func(v string) []string {
 		s := strings.TrimSpace(v)
 		if s == "" {
@@ -631,7 +634,7 @@ func syntaxText(text string, lexer string) string {
 	if lexer == "text" {
 		return text
 	}
-	out, _ := pterm.DefaultCodeBlock.WithLanguage(lexer).Sprint(text)
+	out, _ := pterm.DefaultBox.WithTitle(lexer).Sprint(text)
 	return out
 }
 
