@@ -611,14 +611,58 @@ func guessLexer(text string, filename string, language string) string {
 	if len(sample) > 500 {
 		sample = sample[:500]
 	}
-	if strings.HasPrefix(sample, "diff ") || strings.Contains(sample, "+++") {
+	if strings.HasPrefix(sample, "diff ") || strings.Contains(sample, "+++") || strings.Contains(sample, "@@ ") {
 		return "diff"
+	}
+	if strings.HasPrefix(sample, "{") || strings.HasPrefix(sample, "[") {
+		return "json"
+	}
+	if strings.Contains(sample, "def ") || strings.Contains(sample, "import ") {
+		return "python"
 	}
 	return "text"
 }
 
-func syntaxText(text string, _ string) string {
-	return text
+func syntaxText(text string, lexer string) string {
+	if lexer == "text" {
+		return text
+	}
+	return pterm.ThemeDefault.CodeBlockStyle.Sprint(text)
+}
+
+func parseUnifiedHunkHeader(line string) (int, int, bool) {
+	if !strings.HasPrefix(line, "@@") {
+		return 0, 0, false
+	}
+	parts := strings.Split(line, " ")
+	if len(parts) < 3 {
+		return 0, 0, false
+	}
+	parseRange := func(p string) (int, bool) {
+		core := p[1:]
+		if strings.Contains(core, ",") {
+			core = strings.Split(core, ",")[0]
+		}
+		n := coerceInt(core)
+		if n == nil {
+			return 0, false
+		}
+		return *n, true
+	}
+	oldLn, ok1 := parseRange(parts[1])
+	newLn, ok2 := parseRange(parts[2])
+	return oldLn, newLn, ok1 && ok2
+}
+
+func styledLineNumber(ln *int, style *pterm.Style, width int) string {
+	s := fmt.Sprintf("%*v", width, "")
+	if ln != nil {
+		s = fmt.Sprintf("%*d", width, *ln)
+	}
+	if style != nil && ln != nil {
+		return style.Sprint(s)
+	}
+	return s
 }
 
 func printNumberedCombinedDiff(oldText, newText, filename, language string) {
@@ -633,10 +677,42 @@ func printNumberedCombinedDiff(oldText, newText, filename, language string) {
 }
 
 func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
+	import "github.com/hexops/gotextdiff"
+	import "github.com/hexops/gotextdiff/myers"
+	import "github.com/hexops/gotextdiff/span"
+	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
+	diff := fmt.Sprint(gotextdiff.ToUnified("a", "b", oldText, edits))
+	lines := strings.Split(diff, "\n")
+	if len(lines) < 3 {
+		return []string{}
+	}
 	lexer := guessLexer(oldText+newText, filename, language)
+	red := pterm.NewStyle(pterm.FgLightRed, pterm.BgDarkGray)
+	green := pterm.NewStyle(pterm.FgLightGreen, pterm.BgDarkGray)
 	var out []string
-	for _, line := range strings.Split(strings.TrimSuffix(newText, "\n"), "\n") {
-		out = append(out, " + "+syntaxText(line, lexer))
+	oldLn, newLn := 0, 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") || line == "" {
+			continue
+		}
+		if l, n, ok := parseUnifiedHunkHeader(line); ok {
+			oldLn, newLn = l, n
+			continue
+		}
+		prefix := line[:1]
+		body := line[1:]
+		switch prefix {
+		case " ":
+			out = append(out, styledLineNumber(&oldLn, nil, 4)+"   "+syntaxText(body, lexer))
+			oldLn++
+			newLn++
+		case "-":
+			out = append(out, styledLineNumber(&oldLn, red, 4)+" - "+syntaxText(body, lexer))
+			oldLn++
+		case "+":
+			out = append(out, styledLineNumber(&newLn, green, 4)+" + "+syntaxText(body, lexer))
+			newLn++
+		}
 	}
 	return out
 }
