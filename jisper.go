@@ -677,8 +677,8 @@ func repoFromDir(baseDir string) (string, bool) {
 	}
 }
 
-func runCmd(dir, name string, args ...string) (string, string, int) {
-	cmd := exec.Command(name, args...)
+func runCmd(dir, _ string, args ...string) (string, string, int) {
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	var outBuf bytes.Buffer
 	var errBuf bytes.Buffer
@@ -902,7 +902,7 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	return mr, nil
 }
 
-func run(configPath string, routineName string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
+func prepareRun(configPath string, routineName string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -910,91 +910,60 @@ func run(configPath string, routineName string, debug bool, noModel bool) (Model
 	}
 	if strings.TrimSpace(routineName) != "" {
 		if _, ok := resolveRoutineTask(config, routineName); !ok {
-			routinesAny := config["routines"]
-			routines, _ := routinesAny.(map[string]any)
+			routines, _ := config["routines"].(map[string]any)
 			available := []string{}
-			for k := range routines {
-				available = append(available, k)
-			}
+			for k := range routines { available = append(available, k) }
 			sort.Strings(available)
-			fmt.Fprintf(os.Stderr, "Routine not found: %s\n", routineName)
-			if len(available) > 0 {
-				fmt.Fprintf(os.Stderr, "Available routines: %s\n", strings.Join(available, ", "))
-			}
+			fmt.Fprintf(os.Stderr, "Routine not found: %s\nAvailable: %s\n", routineName, strings.Join(available, ", "))
 			os.Exit(2)
 		}
 	}
-
 	endpointURL := DefaultURL
-	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
-		endpointURL = s
-	}
-	apiKeyEnvVar := DefaultAPIKeyEnvVar
-	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
-		apiKeyEnvVar = s
-	}
-	if strings.Contains(endpointURL, "openrouter.ai") && apiKeyEnvVar == DefaultAPIKeyEnvVar {
-		apiKeyEnvVar = "OPENROUTER_API_KEY"
-	}
-	apiKey := strings.TrimSpace(os.Getenv(apiKeyEnvVar))
-
-	systemPromptRaw, _ := asNonEmptyStr(config["system_prompt"])
-	projectPrompt, _ := asNonEmptyStr(config["project"])
-	systemPromptForCtx := systemPromptRaw
-	if projectPrompt != "" {
-		systemPromptForCtx = systemPromptForCtx + "\n\n" + projectPrompt
-	}
-	userTaskForCtx := ""
-	if t, ok := resolveRoutineTask(config, routineName); ok {
-		userTaskForCtx = t
-	} else if t, ok := asNonEmptyStr(config["task"]); ok {
-		userTaskForCtx = t
-	}
-
-	fileJinjaContext := buildJinjaContext(config, "", userTaskForCtx, systemPromptForCtx)
-	renderSourcesAsJinja := false
-	if v, ok := config["render_source_files_as_jinja"]; ok {
-		if b, ok := v.(bool); ok {
-			renderSourcesAsJinja = b
-		}
-	}
-	var sourceJinjaContext map[string]any
-	if renderSourcesAsJinja {
-		sourceJinjaContext = fileJinjaContext
-	}
-
+	if s, ok := asNonEmptyStr(config["endpoint"]); ok { endpointURL = s }
+	keyVar := DefaultAPIKeyEnvVar
+	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok { keyVar = s }
+	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar { keyVar = "OPENROUTER_API_KEY" }
+	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	sysRaw, _ := asNonEmptyStr(config["system_prompt"])
+	projPrompt, _ := asNonEmptyStr(config["project"])
+	sysCtx := sysRaw
+	if projPrompt != "" { sysCtx = sysCtx + "\n\n" + projPrompt }
+	userCtx := ""
+	if t, ok := resolveRoutineTask(config, routineName); ok { userCtx = t } else if t, ok := asNonEmptyStr(config["task"]); ok { userCtx = t }
+	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
+	render, _ := config["render_source_files_as_jinja"].(bool)
+	var srcCtx map[string]any
+	if render { srcCtx = fileCtx }
 	cwd, _ := os.Getwd()
-	sourceMaterial := buildSourceMaterial(config, cwd, sourceJinjaContext)
-	pl, promptContent := buildPayload(config, sourceMaterial, routineName, endpointURL)
+	srcMaterial := buildSourceMaterial(config, cwd, srcCtx)
+	pl, pContent := buildPayload(config, srcMaterial, routineName, endpointURL)
+	return config, pl, pContent, apiKey, endpointURL
+}
 
+func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
+	spinner, _ := pterm.DefaultSpinner.Start("Waiting for model...")
+	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
+	if err != nil { spinner.Fail(err.Error()); os.Exit(1) }
+	spinner.Success()
+	usage := extractUsageFromAPIResponse(apiJSON, headers)
+	mr, err := parseModelResponse(apiJSON)
+	if err != nil { fmt.Fprintln(os.Stderr, err.Error()); os.Exit(1) }
+	return mr, usage, getModelCode(config)
+}
+
+func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
+	cfg, pl, content, key, endpoint := prepareRun(path, routine)
 	if debug {
-		_, _ = fmt.Fprintln(os.Stdout, "\n--- PROMPT (user message content) ---")
-		_, _ = fmt.Fprintln(os.Stdout, promptContent)
-		_, _ = fmt.Fprintln(os.Stdout, "--- END PROMPT ---")
+		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
-
 	if noModel {
-		_, _ = fmt.Fprintln(os.Stdout, "--no-model specified; stopping before API request")
+		fmt.Println("--no-model specified")
 		enc, _ := json.MarshalIndent(pl, "", "  ")
-		_, _ = fmt.Fprintln(os.Stdout, string(enc))
+		fmt.Println(string(enc))
 		os.Exit(0)
 	}
-
-	spinner, _ := pterm.DefaultSpinner.Start("Waiting for model...")
-	apiJSON, respHeaders, err := callOpenAICompatible(endpointURL, apiKey, pl)
-	if err != nil {
-		spinner.Fail(err.Error())
-		os.Exit(1)
-	}
-	spinner.Success()
-	modelCode := getModelCode(config)
-	usage := extractUsageFromAPIResponse(apiJSON, respHeaders)
-	mr, err := parseModelResponse(apiJSON)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
-	return mr, usage, modelCode, config
+	mr, usage, code := callModel(endpoint, key, pl, cfg)
+	return mr, usage, code, cfg
 }
 
 func estimateCostUSD(modelCode string, usage Usage) *float64 {
@@ -1017,92 +986,44 @@ func estimateCostUSD(modelCode string, usage Usage) *float64 {
 	return &cost
 }
 
+func handleGlobalFlags(c *cli.Context) bool {
+	if c.Bool("new") { fmt.Fprintln(os.Stderr, "--new is not implemented"); os.Exit(1) }
+	if c.Bool("redo") { os.Exit(redoLastCommit(".")) }
+	if c.Bool("undo") { os.Exit(undoLastCommit(".")) }
+	return false
+}
+
+func executeRunAction(c *cli.Context) error {
+	handleGlobalFlags(c)
+	promptPath := c.String("prompt")
+	if !c.IsSet("prompt") && c.NArg() > 0 {
+		if _, err := os.Stat(c.Args().Get(0)); err == nil { promptPath = c.Args().Get(0) }
+	}
+	routine := ""
+	if c.NArg() > 0 && c.Args().Get(0) != promptPath { routine = c.Args().Get(0) } else if c.NArg() > 1 { routine = c.Args().Get(1) }
+	mr, usage, code, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
+	lang, _ := asNonEmptyStr(config["language"])
+	changed := applyReplacements(mr.Edit.Replacements, ".", lang)
+	msg := strings.TrimSpace(mr.Edit.CommitMessage)
+	if msg == "" { msg = "Apply model edits" }
+	pterm.Info.Printfln("Commit message: %s", msg)
+	if cost := estimateCostUSD(code, usage); cost != nil { pterm.Success.Printfln("$%.4f", *cost) }
+	repo := initRepoIfMissing(".")
+	if len(changed) == 0 { fmt.Println("No changes; skipping commit"); return nil }
+	stageAndCommit(repo, changed, msg)
+	_ = runBuildStep(config, promptPath)
+	return nil
+}
+
 func main() {
 	app := &cli.App{
-		Name:  "jisper",
-		Usage: "CLI for Jisper",
+		Name: "jisper", Usage: "CLI for Jisper",
 		Flags: []cli.Flag{
-			cli.StringFlag{
-				Name:  "prompt, p",
-				Value: DefaultPromptFile,
-				Usage: "Path to prompt/config file",
-			},
-			cli.BoolFlag{
-				Name:  "new",
-				Usage: "Copy bundled default prompt into CWD (not implemented in Go scaffold)",
-			},
-			cli.BoolFlag{
-				Name:  "undo, u",
-				Usage: "Undo last git commit (hard reset to HEAD~1)",
-			},
-			&cli.BoolFlag{
-				Name:  "redo",
-				Usage: "Redo last undo (hard reset to ORIG_HEAD)",
-			},
-			&cli.BoolFlag{
-				Name:  "debug",
-				Usage: "Print the prompt content before sending",
-			},
-			&cli.BoolFlag{
-				Name:  "no-model",
-				Usage: "Stop before API request",
-			},
+			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
+			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
+			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
 		},
-		Action: func(c *cli.Context) error {
-			if c.Bool("new") {
-				fmt.Fprintln(os.Stderr, "--new is not implemented in Go scaffold")
-				os.Exit(1)
-				return nil
-			}
-			if c.Bool("redo") {
-				os.Exit(redoLastCommit("."))
-			}
-			if c.Bool("undo") {
-				os.Exit(undoLastCommit("."))
-			}
-
-			promptPath := c.String("prompt")
-			if !c.IsSet("prompt") && c.NArg() > 0 {
-				// If first arg is a file that exists, use it as prompt
-				if _, err := os.Stat(c.Args().Get(0)); err == nil {
-					promptPath = c.Args().Get(0)
-				}
-			}
-			routineName := ""
-			if c.NArg() > 0 && c.Args().Get(0) != promptPath {
-				routineName = c.Args().Get(0)
-			} else if c.NArg() > 1 {
-				routineName = c.Args().Get(1)
-			}
-
-			mr, usage, modelCode, config := run(promptPath, routineName, c.Bool("debug"), c.Bool("no-model"))
-			lang, _ := asNonEmptyStr(config["language"])
-			changed := applyReplacements(mr.Edit.Replacements, ".", lang)
-
-			commitMessage := strings.TrimSpace(mr.Edit.CommitMessage)
-			if commitMessage == "" {
-				commitMessage = "Apply model edits"
-			}
-			pterm.Info.Printfln("Commit message: %s", commitMessage)
-
-			if cost := estimateCostUSD(modelCode, usage); cost != nil {
-				pterm.Success.Printfln("$%.4f", *cost)
-			}
-
-			repoRoot := initRepoIfMissing(".")
-			if len(changed) == 0 {
-				fmt.Println("No files changed; skipping commit")
-				return nil
-			}
-			stageAndCommit(repoRoot, changed, commitMessage)
-
-			_ = runBuildStep(config, promptPath)
-			return nil
-		},
+		Action: executeRunAction,
 	}
-
-	if err := app.Run(os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	if err := app.Run(os.Args); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
 }
