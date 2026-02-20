@@ -260,11 +260,12 @@ func loadPromptFile(path string) (map[string]any, error) {
 	if err != nil {
 		return map[string]any{}, err
 	}
-	if ext == ".yaml" || ext == ".yml" {
-		return map[string]any{}, fmt.Errorf("YAML parsing not yet implemented in Go scaffold (no third-party deps allowed)")
-	}
 	var cfg map[string]any
-	err = json.Unmarshal(b, &cfg)
+	if ext == ".yaml" || ext == ".yml" {
+		err = yaml.Unmarshal(b, &cfg)
+	} else {
+		err = json.Unmarshal(b, &cfg)
+	}
 	if err != nil {
 		return map[string]any{}, err
 	}
@@ -688,7 +689,32 @@ func runBuildStep(config map[string]any, configPath string) *int {
 			code = 1
 		}
 	}
-	_ = configPath
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		return &code
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(b, &node); err != nil || len(node.Content) == 0 {
+		return &code
+	}
+	root := node.Content[0]
+	updateKey := func(k string, v any) {
+		valStr := fmt.Sprintf("%v", v)
+		for i := 0; i < len(root.Content); i += 2 {
+			if root.Content[i].Value == k {
+				root.Content[i+1].Value = valStr
+				return
+			}
+		}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &yaml.Node{Kind: yaml.ScalarNode, Value: valStr})
+	}
+	if code == 0 {
+		updateKey("success", "true")
+	} else {
+		updateKey("error", fmt.Sprintf("build failed (%d)", code))
+	}
+	out, _ := yaml.Marshal(&node)
+	_ = os.WriteFile(configPath, out, 0o644)
 	return &code
 }
 
