@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+
 	"github.com/pterm/pterm"
 	cli "github.com/urfave/cli"
 	yaml "go.yaml.in/yaml/v4"
@@ -627,7 +628,7 @@ func syntaxText(text string, lexer string) string {
 	if lexer == "text" {
 		return text
 	}
-	return pterm.ThemeDefault.CodeBlockStyle.Sprint(text)
+	return pterm.DefaultCodeBlock.WithTextStyle(pterm.NewStyle(pterm.FgLightWhite)).Sprint(text)
 }
 
 func parseUnifiedHunkHeader(line string) (int, int, bool) {
