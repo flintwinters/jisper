@@ -523,23 +523,7 @@ func syntaxText(text string, lexer string) string {
 	return out
 }
 
-func guessLexer(text string, filename string, language string) string {
-	if language != "" {
-		return language
-	}
-	ext := strings.ToLower(filepath.Ext(filename))
-	mapping := map[string]string{
-		".py": "python", ".go": "go", ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown", ".js": "javascript", ".ts": "typescript",
-	}
-	if l, ok := mapping[ext]; ok {
-		return l
-	}
-	if strings.Contains(text, "package ") && strings.Contains(text, "func ") {
-		return "go"
-	}
-	return "text"
-}
-
+func applyReplacements(repls []Replacement, baseDir string, language string) []string {
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
