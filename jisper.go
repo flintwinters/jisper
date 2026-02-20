@@ -73,67 +73,7 @@ var ModelPricesUSDPer1M = map[string]Prices{
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
 }
 
-func asNonEmptyStr(v any) (string, bool) {
-	s, ok := v.(string)
-	if !ok {
-		return "", false
-	}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", false
-	}
-	return s, true
-}
 
-func asListOfNonEmptyStr(v any) []string {
-	xs, ok := v.([]any)
-	if !ok {
-		ss, ok := v.([]string)
-		if !ok {
-			return []string{}
-		}
-		out := make([]string, 0, len(ss))
-		for _, s := range ss {
-			t := strings.TrimSpace(s)
-			if t != "" {
-				out = append(out, t)
-			}
-		}
-		return out
-	}
-	out := make([]string, 0, len(xs))
-	for _, x := range xs {
-		s, ok := asNonEmptyStr(x)
-		if ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func dedupeKeepOrder(xs []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(xs))
-	for _, x := range xs {
-		if x == "" {
-			continue
-		}
-		if seen[x] {
-			continue
-		}
-		seen[x] = true
-		out = append(out, x)
-	}
-	return out
-}
-
-func readTextOrNone(path string) (string, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
 
 func getModelCode(config map[string]any) string {
 	model, ok := asNonEmptyStr(config["model"])
@@ -164,69 +104,7 @@ func resolveRoutineTask(config map[string]any, routineName string) (string, bool
 	return asNonEmptyStr(taskAny)
 }
 
-func toRel(baseDir string, p string) string {
-	rel, err := filepath.Rel(baseDir, p)
-	if err != nil {
-		return p
-	}
-	return rel
-}
 
-func resolvePathsAndGlobs(values []string, baseDir string) []string {
-	if os.Getenv("JISPER_DEBUG") != "" {
-		fmt.Printf("DEBUG: resolving for baseDir %s with values %v\n", baseDir, values)
-	}
-	one := func(v string) []string {
-		s := strings.TrimSpace(v)
-		if s == "" {
-			return []string{}
-		}
-		p := filepath.Join(baseDir, s)
-		st, err := os.Stat(p)
-		if err == nil && st.IsDir() {
-			ents, err := os.ReadDir(p)
-			if err != nil {
-				return []string{}
-			}
-			names := make([]string, 0, len(ents))
-			for _, e := range ents {
-				if e.IsDir() {
-					continue
-				}
-				names = append(names, e.Name())
-			}
-			sort.Strings(names)
-			out := make([]string, 0, len(names))
-			for _, n := range names {
-				out = append(out, toRel(baseDir, filepath.Join(p, n)))
-			}
-			return out
-		}
-		if err == nil && !st.IsDir() {
-			return []string{toRel(baseDir, p)}
-		}
-		matches, _ := filepath.Glob(filepath.Join(baseDir, s))
-		out := make([]string, 0, len(matches))
-		for _, m := range matches {
-			mst, err := os.Stat(m)
-			if err != nil {
-				continue
-			}
-			if mst.IsDir() {
-				continue
-			}
-			out = append(out, toRel(baseDir, m))
-		}
-		sort.Strings(out)
-		return out
-	}
-
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		out = append(out, one(v)...)
-	}
-	return dedupeKeepOrder(out)
-}
 
 func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	fullRaw := asListOfNonEmptyStr(config["full_files"])
@@ -288,20 +166,7 @@ func loadPromptFile(path string) (map[string]any, error) {
 	return cfg, nil
 }
 
-func render(tmpl string, ctx map[string]any) string {
-	for k, v := range ctx {
-		tmpl = strings.ReplaceAll(tmpl, "{{"+k+"}}", fmt.Sprintf("%v", v))
-	}
-	return tmpl
-}
 
-func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]any {
-	m := map[string]any{"source_text": source, "task": task, "system_prompt": sys}
-	for k, v := range cfg {
-		m[k] = v
-	}
-	return m
-}
 
 func readAndConcatenateFiles(fileList []string, baseDir string, ctx map[string]any) string {
 	var res []string
