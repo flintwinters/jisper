@@ -301,8 +301,12 @@ func readAndConcatenateFiles(fileList []string, baseDir string, ctx map[string]a
 	var res []string
 	for _, f := range fileList {
 		txt, ok := readTextOrNone(filepath.Join(baseDir, f))
-		if !ok { continue }
-		if ctx != nil { txt = render(txt, ctx) }
+		if !ok {
+			continue
+		}
+		if ctx != nil {
+			txt = render(txt, ctx)
+		}
 		res = append(res, fmt.Sprintf("--- FILENAME: %s ---\n%s", f, txt))
 	}
 	return strings.Join(res, "\n\n")
@@ -586,25 +590,56 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", matchedOld, false
 }
 
-func guessLexer(_ string, filename string, language string) string {
+func guessLexer(text string, filename string, language string) string {
 	if language != "" {
 		return language
 	}
-	ext := strings.ToLower(filepath.Ext(filename))
-	mapping := map[string]string{
-		".py": "python", ".json": "json", ".json5": "json",
-		".go": "go", ".yaml": "yaml", ".yml": "yaml",
-		".md": "markdown", ".diff": "diff", ".patch": "diff",
-		".js": "javascript", ".ts": "typescript",
+	if filename != "" {
+		ext := strings.ToLower(filepath.Ext(filename))
+		mapping := map[string]string{
+			".py": "python", ".json": "json", ".json5": "json",
+			".go": "go", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+			".diff": "diff", ".patch": "diff", ".toml": "toml",
+			".sh": "bash", ".bash": "bash", ".js": "javascript",
+			".ts": "typescript", ".html": "html", ".css": "css", ".sql": "sql",
+		}
+		if l, ok := mapping[ext]; ok {
+			return l
+		}
 	}
-	if l, ok := mapping[ext]; ok {
-		return l
+	sample := strings.ToLower(text)
+	if len(sample) > 500 {
+		sample = sample[:500]
+	}
+	if strings.HasPrefix(sample, "diff ") || strings.Contains(sample, "+++") {
+		return "diff"
 	}
 	return "text"
 }
 
-func syntaxText(text string, _ string) string {
-	return text
+func syntaxText(text string, lexer string) string {
+	out, _ := pterm.DefaultSyntaxHighlighting.WithHighlightingLanguage(pterm.HighlightingLanguage(lexer)).Highlight(text)
+	return out
+}
+
+func printNumberedCombinedDiff(oldText, newText, filename, language string) {
+	diffLines := formatCombinedDiffLines(oldText, newText, filename, language)
+	if len(diffLines) == 0 {
+		pterm.Warning.Println("(no diff; content is identical)")
+		return
+	}
+	for _, line := range diffLines {
+		fmt.Println(line)
+	}
+}
+
+func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
+	lexer := guessLexer(oldText+newText, filename, language)
+	var out []string
+	for _, line := range strings.Split(strings.TrimSuffix(newText, "\n"), "\n") {
+		out = append(out, " + " + syntaxText(line, lexer))
+	}
+	return out
 }
 
 func applyReplacements(repls []Replacement, baseDir string, language string) []string {
@@ -620,7 +655,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
 			pterm.DefaultSection.Println(filename)
-			fmt.Println(syntaxText(r.NewString, guessLexer(r.NewString, filename, language)))
+			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
 			continue
@@ -639,6 +674,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			continue
 		}
 		pterm.DefaultSection.Println(filename)
+		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
 	}
