@@ -677,7 +677,7 @@ func repoFromDir(baseDir string) (string, bool) {
 	}
 }
 
-func runCmd(dir, _ string, args ...string) (string, string, int) {
+func runCmd(dir, _ string, args ...string) (string, int) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	var outBuf bytes.Buffer
@@ -693,7 +693,7 @@ func runCmd(dir, _ string, args ...string) (string, string, int) {
 			exitCode = 1
 		}
 	}
-	return outBuf.String(), errBuf.String(), exitCode
+	return outBuf.String(), exitCode
 }
 
 func stageAndCommit(repoRoot string, changedFiles []string, message string) {
@@ -705,8 +705,8 @@ func stageAndCommit(repoRoot string, changedFiles []string, message string) {
 	if len(relpaths) == 0 {
 		return
 	}
-	_, _, _ = runCmd(repoRoot, "git", append([]string{"add"}, relpaths...)...)
-	_, _, _ = runCmd(repoRoot, "git", "commit", "-m", message)
+	_, _ = runCmd(repoRoot, "git", append([]string{"add"}, relpaths...)...)
+	_, _ = runCmd(repoRoot, "git", "commit", "-m", message)
 }
 
 func requireValidRepo(baseDir string) (string, bool) {
@@ -715,7 +715,7 @@ func requireValidRepo(baseDir string) (string, bool) {
 		fmt.Fprintln(os.Stderr, "Not a git repository")
 		return "", false
 	}
-	_, _, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD")
+	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD")
 	if code != 0 {
 		fmt.Fprintln(os.Stderr, "No valid commits")
 		return "", false
@@ -728,12 +728,12 @@ func undoLastCommit(baseDir string) int {
 	if !ok {
 		return 1
 	}
-	_, _, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
+	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
 	if code != 0 {
 		fmt.Fprintln(os.Stderr, "No parent commit to reset to")
 		return 1
 	}
-	_, _, code = runCmd(repoRoot, "git", "reset", "--hard", "HEAD~1")
+	_, code = runCmd(repoRoot, "git", "reset", "--hard", "HEAD~1")
 	if code != 0 {
 		return 1
 	}
@@ -750,13 +750,13 @@ func redoLastCommit(baseDir string) int {
 		fmt.Fprintln(os.Stderr, "No ORIG_HEAD found to redo to")
 		return 1
 	}
-	out, _, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
+	out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
 	sha := strings.TrimSpace(out)
 	if sha == "" {
 		fmt.Fprintln(os.Stderr, "No ORIG_HEAD found to redo to")
 		return 1
 	}
-	_, _, code := runCmd(repoRoot, "git", "reset", "--hard", sha)
+	_, code := runCmd(repoRoot, "git", "reset", "--hard", sha)
 	if code != 0 {
 		return 1
 	}
@@ -768,7 +768,7 @@ func initRepoIfMissing(baseDir string) string {
 	if ok {
 		return repoRoot
 	}
-	_, _, _ = runCmd(baseDir, "git", "init")
+	_, _ = runCmd(baseDir, "git", "init")
 	fmt.Printf("Initialized empty Git repository in %s/.git\n", baseDir)
 	return baseDir
 }
@@ -912,28 +912,44 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 		if _, ok := resolveRoutineTask(config, routineName); !ok {
 			routines, _ := config["routines"].(map[string]any)
 			available := []string{}
-			for k := range routines { available = append(available, k) }
+			for k := range routines {
+				available = append(available, k)
+			}
 			sort.Strings(available)
 			fmt.Fprintf(os.Stderr, "Routine not found: %s\nAvailable: %s\n", routineName, strings.Join(available, ", "))
 			os.Exit(2)
 		}
 	}
 	endpointURL := DefaultURL
-	if s, ok := asNonEmptyStr(config["endpoint"]); ok { endpointURL = s }
+	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
+		endpointURL = s
+	}
 	keyVar := DefaultAPIKeyEnvVar
-	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok { keyVar = s }
-	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar { keyVar = "OPENROUTER_API_KEY" }
+	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
+		keyVar = s
+	}
+	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
+		keyVar = "OPENROUTER_API_KEY"
+	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
 	sysRaw, _ := asNonEmptyStr(config["system_prompt"])
 	projPrompt, _ := asNonEmptyStr(config["project"])
 	sysCtx := sysRaw
-	if projPrompt != "" { sysCtx = sysCtx + "\n\n" + projPrompt }
+	if projPrompt != "" {
+		sysCtx = sysCtx + "\n\n" + projPrompt
+	}
 	userCtx := ""
-	if t, ok := resolveRoutineTask(config, routineName); ok { userCtx = t } else if t, ok := asNonEmptyStr(config["task"]); ok { userCtx = t }
+	if t, ok := resolveRoutineTask(config, routineName); ok {
+		userCtx = t
+	} else if t, ok := asNonEmptyStr(config["task"]); ok {
+		userCtx = t
+	}
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
 	render, _ := config["render_source_files_as_jinja"].(bool)
 	var srcCtx map[string]any
-	if render { srcCtx = fileCtx }
+	if render {
+		srcCtx = fileCtx
+	}
 	cwd, _ := os.Getwd()
 	srcMaterial := buildSourceMaterial(config, cwd, srcCtx)
 	pl, pContent := buildPayload(config, srcMaterial, routineName, endpointURL)
@@ -943,11 +959,17 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
 	spinner, _ := pterm.DefaultSpinner.Start("Waiting for model...")
 	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
-	if err != nil { spinner.Fail(err.Error()); os.Exit(1) }
+	if err != nil {
+		spinner.Fail(err.Error())
+		os.Exit(1)
+	}
 	spinner.Success()
 	usage := extractUsageFromAPIResponse(apiJSON, headers)
 	mr, err := parseModelResponse(apiJSON)
-	if err != nil { fmt.Fprintln(os.Stderr, err.Error()); os.Exit(1) }
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 	return mr, usage, getModelCode(config)
 }
 
@@ -987,9 +1009,16 @@ func estimateCostUSD(modelCode string, usage Usage) *float64 {
 }
 
 func handleGlobalFlags(c *cli.Context) bool {
-	if c.Bool("new") { fmt.Fprintln(os.Stderr, "--new is not implemented"); os.Exit(1) }
-	if c.Bool("redo") { os.Exit(redoLastCommit(".")) }
-	if c.Bool("undo") { os.Exit(undoLastCommit(".")) }
+	if c.Bool("new") {
+		fmt.Fprintln(os.Stderr, "--new is not implemented")
+		os.Exit(1)
+	}
+	if c.Bool("redo") {
+		os.Exit(redoLastCommit("."))
+	}
+	if c.Bool("undo") {
+		os.Exit(undoLastCommit("."))
+	}
 	return false
 }
 
@@ -997,19 +1026,32 @@ func executeRunAction(c *cli.Context) error {
 	handleGlobalFlags(c)
 	promptPath := c.String("prompt")
 	if !c.IsSet("prompt") && c.NArg() > 0 {
-		if _, err := os.Stat(c.Args().Get(0)); err == nil { promptPath = c.Args().Get(0) }
+		if _, err := os.Stat(c.Args().Get(0)); err == nil {
+			promptPath = c.Args().Get(0)
+		}
 	}
 	routine := ""
-	if c.NArg() > 0 && c.Args().Get(0) != promptPath { routine = c.Args().Get(0) } else if c.NArg() > 1 { routine = c.Args().Get(1) }
+	if c.NArg() > 0 && c.Args().Get(0) != promptPath {
+		routine = c.Args().Get(0)
+	} else if c.NArg() > 1 {
+		routine = c.Args().Get(1)
+	}
 	mr, usage, code, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
 	lang, _ := asNonEmptyStr(config["language"])
 	changed := applyReplacements(mr.Edit.Replacements, ".", lang)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
-	if msg == "" { msg = "Apply model edits" }
+	if msg == "" {
+		msg = "Apply model edits"
+	}
 	pterm.Info.Printfln("Commit message: %s", msg)
-	if cost := estimateCostUSD(code, usage); cost != nil { pterm.Success.Printfln("$%.4f", *cost) }
+	if cost := estimateCostUSD(code, usage); cost != nil {
+		pterm.Success.Printfln("$%.4f", *cost)
+	}
 	repo := initRepoIfMissing(".")
-	if len(changed) == 0 { fmt.Println("No changes; skipping commit"); return nil }
+	if len(changed) == 0 {
+		fmt.Println("No changes; skipping commit")
+		return nil
+	}
 	stageAndCommit(repo, changed, msg)
 	_ = runBuildStep(config, promptPath)
 	return nil
@@ -1025,5 +1067,8 @@ func main() {
 		},
 		Action: executeRunAction,
 	}
-	if err := app.Run(os.Args); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
