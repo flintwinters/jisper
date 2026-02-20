@@ -617,9 +617,8 @@ func guessLexer(text string, filename string, language string) string {
 	return "text"
 }
 
-func syntaxText(text string, lexer string) string {
-	out, _ := pterm.DefaultSyntaxHighlighting.Highlight(lexer, text)
-	return out
+func syntaxText(text string, _ string) string {
+	return text
 }
 
 func printNumberedCombinedDiff(oldText, newText, filename, language string) {
