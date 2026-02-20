@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/pterm/pterm"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
@@ -519,7 +518,28 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", matchedOld, false
 }
 
-func applyReplacements(repls []Replacement, baseDir string, language string) []string {
+func syntaxText(text string, lexer string) string {
+	out, _ := pterm.DefaultSyntaxHighlighting.WithHighlightingLanguage(pterm.HighlightingLanguage(lexer)).Highlight(text)
+	return out
+}
+
+func guessLexer(text string, filename string, language string) string {
+	if language != "" {
+		return language
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	mapping := map[string]string{
+		".py": "python", ".go": "go", ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown", ".js": "javascript", ".ts": "typescript",
+	}
+	if l, ok := mapping[ext]; ok {
+		return l
+	}
+	if strings.Contains(text, "package ") && strings.Contains(text, "func ") {
+		return "go"
+	}
+	return "text"
+}
+
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
