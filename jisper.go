@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
-
+	"github.com/hexops/gotextdiff"
+	"github.com/hexops/gotextdiff/myers"
+	"github.com/hexops/gotextdiff/span"
 	"github.com/pterm/pterm"
 	cli "github.com/urfave/cli"
 	yaml "go.yaml.in/yaml/v4"
@@ -603,6 +605,7 @@ func guessLexer(text string, filename string, language string) string {
 			".diff": "diff", ".patch": "diff", ".toml": "toml",
 			".sh": "bash", ".bash": "bash", ".js": "javascript",
 			".ts": "typescript", ".html": "html", ".css": "css", ".sql": "sql",
+			".rs": "rust", ".c": "c", ".cpp": "cpp", ".h": "cpp",
 		}
 		if l, ok := mapping[ext]; ok {
 			return l
@@ -628,7 +631,8 @@ func syntaxText(text string, lexer string) string {
 	if lexer == "text" {
 		return text
 	}
-	return pterm.DefaultCodeBlock.WithTextStyle(pterm.NewStyle(pterm.FgLightWhite)).Sprint(text)
+	out, _ := pterm.DefaultCodeBlock.WithLanguage(lexer).Sprint(text)
+	return out
 }
 
 func parseUnifiedHunkHeader(line string) (int, int, bool) {
@@ -678,7 +682,6 @@ func printNumberedCombinedDiff(oldText, newText, filename, language string) {
 }
 
 func formatCombinedDiffLines(oldText, newText, filename, language string) []string {
-
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := fmt.Sprint(gotextdiff.ToUnified("a", "b", oldText, edits))
 	lines := strings.Split(diff, "\n")
@@ -686,8 +689,8 @@ func formatCombinedDiffLines(oldText, newText, filename, language string) []stri
 		return []string{}
 	}
 	lexer := guessLexer(oldText+newText, filename, language)
-	red := pterm.NewStyle(pterm.FgLightRed, pterm.BgDarkGray)
-	green := pterm.NewStyle(pterm.FgLightGreen, pterm.BgDarkGray)
+	red := pterm.NewStyle(pterm.FgLightRed, pterm.BgBlack)
+	green := pterm.NewStyle(pterm.FgLightGreen, pterm.BgBlack)
 	var out []string
 	oldLn, newLn := 0, 0
 	for _, line := range lines {
