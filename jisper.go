@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/chroma/v2/quick"
+	"github.com/pterm/pterm"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -517,38 +519,39 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", matchedOld, false
 }
 
-func applyReplacements(repls []Replacement, baseDir string) []string {
+func applyReplacements(repls []Replacement, baseDir string, language string) []string {
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
 		if filename == "" {
-			fmt.Fprintf(os.Stderr, "Replacement #%d missing filename; skipping\n", i)
+			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
 		original, ok := readTextOrNone(targetPath)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
+			pterm.DefaultSection.Println(filename)
+			fmt.Println(syntaxText(r.NewString, guessLexer(r.NewString, filename, language)))
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
-			fmt.Printf("%s\n", filename)
 			changed = append(changed, targetPath)
 			continue
 		}
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Target file not found: %s\n", targetPath)
+			pterm.Error.Printfln("Target file not found: %s", targetPath)
 			continue
 		}
 		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
 		if !applied {
-			fmt.Printf("old_string not found in %s; skipping\n", filename)
+			pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
 			continue
 		}
 		if updated == original {
-			fmt.Printf("No changes applied to %s (replacement produced identical content)\n", filename)
+			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
+		pterm.DefaultSection.Println(filename)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
-		fmt.Printf("%s\n", filename)
 		changed = append(changed, targetPath)
 	}
 	return changed
@@ -871,11 +874,13 @@ func run(configPath string, routineName string, debug bool, noModel bool) (Model
 		os.Exit(0)
 	}
 
+	spinner, _ := pterm.DefaultSpinner.Start("Waiting for model...")
 	apiJSON, respHeaders, err := callOpenAICompatible(endpointURL, apiKey, pl)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
+		spinner.Fail(err.Error())
 		os.Exit(1)
 	}
+	spinner.Success()
 	modelCode := getModelCode(config)
 	usage := extractUsageFromAPIResponse(apiJSON, respHeaders)
 	mr, err := parseModelResponse(apiJSON)
@@ -958,16 +963,17 @@ func main() {
 			}
 
 			mr, usage, modelCode, config := run(promptPath, routineName, c.Bool("debug"), c.Bool("no-model"))
-			changed := applyReplacements(mr.Edit.Replacements, ".")
+			lang, _ := asNonEmptyStr(config["language"])
+			changed := applyReplacements(mr.Edit.Replacements, ".", lang)
 
 			commitMessage := strings.TrimSpace(mr.Edit.CommitMessage)
 			if commitMessage == "" {
 				commitMessage = "Apply model edits"
 			}
-			fmt.Printf("\nCommit message: %s\n\n", commitMessage)
+			pterm.Info.Printfln("Commit message: %s", commitMessage)
 
 			if cost := estimateCostUSD(modelCode, usage); cost != nil {
-				fmt.Printf("$%.4f\n", *cost)
+				pterm.Success.Printfln("$%.4f", *cost)
 			}
 
 			repoRoot := initRepoIfMissing(".")
