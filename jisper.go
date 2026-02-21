@@ -867,7 +867,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
-		pterm.NewStyle(pterm.FgLightCyan).Println(filename)
+		fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
