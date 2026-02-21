@@ -30,6 +30,49 @@ const (
 	DefaultFallbackOutputUSDPer1M = 15.0
 )
 
+var DefaultOutputSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"edit": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"explanation": map[string]any{
+					"type":        "string",
+					"description": "An short 1-2 sentence explanation of the changes you are making",
+				},
+				"commit_message": map[string]any{
+					"type":        "string",
+					"description": "The commit message to use for the changes you are making",
+				},
+				"replacements": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"filename": map[string]any{
+								"type":        "string",
+								"description": "The file in which to apply the edit",
+							},
+							"old_string": map[string]any{
+								"type":        "string",
+								"description": "The old string to replace in the file",
+							},
+							"new_string": map[string]any{
+								"type":        "string",
+								"description": "The new string to add",
+							},
+						},
+						"required":             []string{"filename", "old_string", "new_string"},
+						"additionalProperties": false,
+					},
+				},
+			},
+			"required":             []string{"explanation", "commit_message", "replacements"},
+			"additionalProperties": false,
+		},
+	},
+	"required": []string{"edit"},
+}
 
 func resolveOnePath(v string, baseDir string) []string {
 	s := strings.TrimSpace(v)
@@ -68,7 +111,6 @@ func resolvePathsAndGlobs(values []string, baseDir string) []string {
 		return resolveOnePath(v, baseDir)
 	}))
 }
-
 
 type Replacement struct {
 	Filename  string `json:"filename"`
@@ -379,11 +421,19 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 				"schema": schema,
 			},
 		}
+	} else {
+		pl.ResponseFormat = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "response_schema",
+				"strict": true,
+				"schema": DefaultOutputSchema,
+			},
+		}
 	}
 
 	return pl, promptContent
 }
-
 
 func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Usage {
 	usageAny := apiJSON["usage"]
@@ -1111,13 +1161,13 @@ func callModel(endpoint string, key string, pl payload, config map[string]any) (
 		spinner.Fail(err.Error())
 		os.Exit(1)
 	}
-	spinner.Success()
 	usage := extractUsageFromAPIResponse(apiJSON, headers)
 	mr, err := parseModelResponse(apiJSON)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
+		spinner.Fail(err.Error())
 		os.Exit(1)
 	}
+	spinner.Success()
 	return mr, usage, getModelCode(config)
 }
 
