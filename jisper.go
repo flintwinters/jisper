@@ -190,9 +190,13 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	structRaw := asListOfNonEmptyStr(config["structural_level_files"])
 	inputRaw := asListOfNonEmptyStr(config["input_level_files"])
 
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles raw counts: full=%d struct=%d input=%d\n", len(fullRaw), len(structRaw), len(inputRaw))
+
 	fullFiles := resolvePathsAndGlobs(fullRaw, baseDir)
 	structFiles := resolvePathsAndGlobs(structRaw, baseDir)
 	inputFiles := resolvePathsAndGlobs(inputRaw, baseDir)
+
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles resolved counts: full=%d struct=%d input=%d\n", len(fullFiles), len(structFiles), len(inputFiles))
 
 	fullSet := map[string]bool{}
 	for _, f := range fullFiles {
@@ -216,6 +220,7 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	}
 
 	sourceFiles := dedupeKeepOrder(append(append([]string{}, fullFiles...), append(structOut, inputOut...)...))
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles final counts: full=%d structOut=%d inputOut=%d sourceFiles=%d\n", len(fullFiles), len(structOut), len(inputOut), len(sourceFiles))
 	return IncludedFiles{
 		FullFiles:            fullFiles,
 		StructuralLevelFiles: structOut,
