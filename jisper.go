@@ -77,6 +77,7 @@ var DefaultOutputSchema = map[string]any{
 
 func resolveOnePath(v string, baseDir string) []string {
 	s := strings.TrimSpace(v)
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath input='%s' baseDir='%s'\n", s, baseDir)
 	if s == "" {
 		return []string{}
 	}
@@ -91,9 +92,11 @@ func resolveOnePath(v string, baseDir string) []string {
 			}
 		}
 		sort.Strings(out)
+		fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath directory resolved to %d files\n", len(out))
 		return out
 	}
 	if err == nil && !st.IsDir() {
+		fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath single file resolved\n")
 		return []string{s}
 	}
 	matches, _ := filepath.Glob(p)
@@ -104,6 +107,7 @@ func resolveOnePath(v string, baseDir string) []string {
 		}
 	}
 	sort.Strings(out)
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath glob resolved to %d files\n", len(out))
 	return out
 }
 
@@ -231,10 +235,13 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 
 func loadPromptFile(path string) (map[string]any, error) {
 	ext := strings.ToLower(filepath.Ext(path))
+	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile path='%s' ext='%s'\n", path, ext)
 	b, err := os.ReadFile(path)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile read error: %v\n", err)
 		return map[string]any{}, err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile read %d bytes\n", len(b))
 	var cfg map[string]any
 	if ext == ".yaml" || ext == ".yml" {
 		err = yaml.Unmarshal(b, &cfg)
@@ -242,11 +249,13 @@ func loadPromptFile(path string) (map[string]any, error) {
 		err = json.Unmarshal(b, &cfg)
 	}
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile parse error: %v\n", err)
 		return map[string]any{}, err
 	}
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile parsed %d top-level keys\n", len(cfg))
 	return cfg, nil
 }
 
@@ -394,15 +403,19 @@ type payload struct {
 }
 
 func buildPayload(promptConfig map[string]any, sourceText string, routineName string, _ string) (payload, string) {
+	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload sourceTextLen=%d routineName='%s'\n", len(sourceText), routineName)
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
 	}
 	systemPromptForCtx := resolveSystemPrompt(promptConfig)
+	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload systemPromptLen=%d\n", len(systemPromptForCtx))
 
 	userTask := resolveUserTask(promptConfig, routineName)
+	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload userTaskLen=%d\n", len(userTask))
 
 	modelCode := getModelCode(promptConfig)
+	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload modelCode='%s'\n", modelCode)
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
 	renderedSystem := render(systemPromptForCtx, ctx)
 	renderedTask := render(userTask, ctx)
@@ -842,9 +855,11 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 }
 
 func applyReplacements(repls []Replacement, baseDir string, language string) []string {
+	fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements count=%d baseDir='%s' language='%s'\n", len(repls), baseDir, language)
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
+		fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements [%d] filename='%s' oldLen=%d newLen=%d\n", i, filename, len(r.OldString), len(r.NewString))
 		if filename == "" {
 			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
 			continue
@@ -1378,8 +1393,10 @@ func handleGlobalFlags(c *cli.Context) bool {
 }
 
 func executeRunAction(c *cli.Context) error {
+	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction invoked\n")
 	handleGlobalFlags(c)
 	promptPath := c.String("prompt")
+	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction promptPath='%s' NArg=%d\n", promptPath, c.NArg())
 	if !c.IsSet("prompt") && c.NArg() > 0 {
 		if _, err := os.Stat(c.Args().Get(0)); err == nil {
 			promptPath = c.Args().Get(0)
@@ -1414,6 +1431,7 @@ func executeRunAction(c *cli.Context) error {
 }
 
 func main() {
+	fmt.Fprintf(os.Stderr, "DEBUG: main starting args=%v\n", os.Args)
 	app := &cli.App{
 		Name: "jisper", Usage: "CLI for Jisper",
 		Flags: []cli.Flag{
@@ -1427,4 +1445,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: main completed successfully\n")
 }

@@ -86,7 +86,14 @@ func readTextOrNone(path string) (string, bool) {
 }
 
 func readFileContent(baseDir, filename string) (string, bool) {
-	return readTextOrNone(filepath.Join(baseDir, filename))
+	path := filepath.Join(baseDir, filename)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: readFileContent error path='%s' err=%v\n", path, err)
+		return "", false
+	}
+	fmt.Fprintf(os.Stderr, "DEBUG: readFileContent success path='%s' len=%d\n", path, len(b))
+	return string(b), true
 }
 
 func toRel(base, target string) string {
