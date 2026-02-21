@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+func keysOf(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func asNonEmptyStr(v any) (string, bool) {
 	s, ok := v.(string)
 	if !ok {

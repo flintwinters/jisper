@@ -466,6 +466,7 @@ func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Us
 }
 
 func applyOneReplacement(original string, oldString string, newString string) (string, string, bool) {
+	fmt.Fprintf(os.Stderr, "DEBUG: applyOneReplacement oldStringLen=%d newStringLen=%d originalLen=%d\n", len(oldString), len(newString), len(original))
 	replaceIf := func(haystack string, needle string) (string, bool) {
 		if needle == "" {
 			return "", false
@@ -479,6 +480,7 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	updated, ok := replaceIf(original, oldString)
 	matchedOld := oldString
 	if ok {
+		fmt.Fprintf(os.Stderr, "DEBUG: exact match found\n")
 		return updated, matchedOld, true
 	}
 
@@ -493,12 +495,14 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	strippedOriginal := strings.TrimSpace(original)
 	trimmedOld = strings.TrimSpace(oldString)
 	if strippedOriginal != "" && trimmedOld != "" && strings.Contains(strippedOriginal, trimmedOld) {
+		fmt.Fprintf(os.Stderr, "DEBUG: fallback match in stripped content\n")
 		leading := original[:len(original)-len(strings.TrimLeft(original, " \t\n\r"))]
 		trailing := original[len(strings.TrimRight(original, " \t\n\r")):]
 		replacedCore := strings.ReplaceAll(strippedOriginal, trimmedOld, newString)
 		return leading + replacedCore + trailing, trimmedOld, true
 	}
 
+	fmt.Fprintf(os.Stderr, "DEBUG: no match found for replacement\n")
 	return "", matchedOld, false
 }
 
@@ -1120,8 +1124,10 @@ func runBuildStep(config map[string]any, configPath string) *int {
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: json.Marshal error: %v\n", err)
 		return nil, nil, err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: request body size=%d bytes\n", len(b))
 	req, err := http.NewRequest("POST", endpointURL, bytes.NewReader(b))
 	if err != nil {
 		return nil, nil, err
@@ -1141,6 +1147,7 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		return nil, nil, err
 	}
 	if resp.StatusCode != 200 {
+		fmt.Fprintf(os.Stderr, "DEBUG: API error status=%d body=%s\n", resp.StatusCode, string(body))
 		return nil, resp.Header, fmt.Errorf("API error status=%d body=%s", resp.StatusCode, string(body))
 	}
 
@@ -1148,14 +1155,17 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 	dec.UseNumber()
 	var apiJSON map[string]any
 	if err := dec.Decode(&apiJSON); err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: JSON decode error: %v\n", err)
 		return nil, resp.Header, err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: response keys: %v\n", keysOf(apiJSON))
 	return apiJSON, resp.Header, nil
 }
 
 func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	choicesAny, ok := apiJSON["choices"]
 	if !ok {
+		fmt.Fprintf(os.Stderr, "DEBUG: missing choices in response, keys: %v\n", keysOf(apiJSON))
 		return ModelResponse{}, fmt.Errorf("missing choices")
 	}
 	choices, ok := choicesAny.([]any)
@@ -1183,10 +1193,12 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 		return ModelResponse{}, fmt.Errorf("invalid content")
 	}
 	content = stripJSONCodeFence(content)
+	fmt.Fprintf(os.Stderr, "DEBUG: content length=%d\n", len(content))
 	var mr ModelResponse
 	dec := json.NewDecoder(strings.NewReader(content))
 	dec.UseNumber()
 	if err := dec.Decode(&mr); err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: model response decode error: %v, content preview: %.200s\n", err, content)
 		return ModelResponse{}, err
 	}
 	return mr, nil
@@ -1195,9 +1207,11 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 func prepareRun(configPath string, routineName string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile error: %v\n", err)
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: loaded config from %s, keys: %v\n", configPath, keysOf(config))
 	if strings.TrimSpace(routineName) != "" {
 		if _, ok := resolveRoutineTask(config, routineName); !ok {
 			routines, _ := config["routines"].(map[string]any)
@@ -1214,6 +1228,7 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: endpointURL=%s\n", endpointURL)
 	keyVar := DefaultAPIKeyEnvVar
 	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
 		keyVar = s
@@ -1222,6 +1237,7 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 		keyVar = "OPENROUTER_API_KEY"
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	fmt.Fprintf(os.Stderr, "DEBUG: keyVar=%s apiKeyPresent=%v\n", keyVar, apiKey != "")
 	sysCtx := resolveSystemPrompt(config)
 	userCtx := resolveUserTask(config, routineName)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
