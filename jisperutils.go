@@ -232,3 +232,36 @@ func coerceFloat(v any) (float64, bool) {
 		return 0, false
 	}
 }
+
+type IssuePos struct {
+	Filename string `json:"Filename"`
+	Offset   int    `json:"Offset"`
+	Line     int    `json:"Line"`
+	Column   int    `json:"Column"`
+}
+
+type Issue struct {
+	FromLinter           string   `json:"FromLinter"`
+	Text                 string   `json:"Text"`
+	Severity             string   `json:"Severity"`
+	SourceLines          []string `json:"SourceLines"`
+	Pos                  IssuePos `json:"Pos"`
+	ExpectNoLint         bool     `json:"ExpectNoLint"`
+	ExpectedNoLintLinter string   `json:"ExpectedNoLintLinter"`
+}
+
+type IssuesFile struct {
+	Issues []Issue `json:"Issues"`
+}
+
+func loadIssuesFile(path string) (IssuesFile, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return IssuesFile{}, err
+	}
+	var issues IssuesFile
+	if err := json.Unmarshal(b, &issues); err != nil {
+		return IssuesFile{}, err
+	}
+	return issues, nil
+}

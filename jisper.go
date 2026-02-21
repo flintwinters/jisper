@@ -1366,6 +1366,16 @@ func handleGlobalFlags(c *cli.Context) bool {
 func executeRunAction(c *cli.Context) error {
 	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction invoked\n")
 	handleGlobalFlags(c)
+	if c.IsSet("issues") {
+		issuesFile := c.String("issues")
+		issues, err := loadIssuesFile(issuesFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to load issues: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "DEBUG: Loaded %d issues from %s\n", len(issues.Issues), issuesFile)
+		return nil
+	}
 	promptPath := c.String("prompt")
 	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction promptPath='%s' NArg=%d\n", promptPath, c.NArg())
 	if !c.IsSet("prompt") && c.NArg() > 0 {
@@ -1409,6 +1419,7 @@ func main() {
 			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
 			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 		},
 		Action: executeRunAction,
 	}
