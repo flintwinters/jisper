@@ -835,7 +835,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
 		fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements [%d] filename='%s' oldLen=%d newLen=%d\n",
-		i, filename, len(r.OldString), len(r.NewString))
+			i, filename, len(r.OldString), len(r.NewString))
 		if filename == "" {
 			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
 			continue
@@ -1064,7 +1064,8 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 		}
 	}
 	add := func(k, v string) {
-		nk, nv := &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
+		nk := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
+		nv := &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
 		if idx >= 0 {
 			root.Content = append(root.Content[:idx], append([]*yaml.Node{nk, nv}, root.Content[idx:]...)...)
 			idx += 2
@@ -1072,16 +1073,26 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 			root.Content = append(root.Content, nk, nv)
 		}
 	}
-	if stdout != "" { add("build_stdout", stdout) }
-	if stderr != "" { add("build_stderr", stderr) }
-	if code == 0 { add("success", "true") } else { add("error", fmt.Sprintf("build failed (%d)", code)) }
+	if stdout != "" {
+		add("build_stdout", stdout)
+	}
+	if stderr != "" {
+		add("build_stderr", stderr)
+	}
+	if code == 0 {
+		add("success", "true")
+	} else {
+		add("error", fmt.Sprintf("build failed (%d)", code))
+	}
 	out, _ := yaml.Marshal(&node)
 	_ = os.WriteFile(path, out, 0o644)
 }
 
 func runBuildStep(config map[string]any, configPath string) *int {
 	cmdStr, ok := asNonEmptyStr(config["build"])
-	if !ok { return nil }
+	if !ok {
+		return nil
+	}
 	fmt.Printf("\nBuild: %s\n\n", cmdStr)
 	cmd := exec.Command("/bin/sh", "-c", cmdStr)
 	var outB, errB bytes.Buffer
@@ -1089,7 +1100,11 @@ func runBuildStep(config map[string]any, configPath string) *int {
 	err := cmd.Run()
 	code := 0
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok { code = ee.ExitCode() } else { code = 1 }
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else {
+			code = 1
+		}
 	}
 	updatePromptConfigWithBuildResults(configPath, sanitizeOutput(outB.String()), sanitizeOutput(errB.String()), code)
 	return &code
