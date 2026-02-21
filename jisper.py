@@ -918,7 +918,8 @@ def print_numbered_combined_diff(
     filename: str | None = None,
 ):
     if title:
-        console.print(f"\n{title}")
+        console.print()
+        console.print(Text(title, style="bold"))
 
     lines = format_combined_diff_lines(
         old_text,
