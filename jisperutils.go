@@ -8,7 +8,29 @@ import (
 	"strings"
 )
 
-func keysOf(m map[string]any) []string {
+func resolveRoutineTask(config map[string]any, routineName string) (string, bool) {
+	name := strings.TrimSpace(routineName)
+	if name == "" {
+		return "", false
+	}
+	routines, ok := config["routines"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	return asNonEmptyStr(routines[name])
+}
+
+func GetExtLexerMapping() map[string]string {
+	return map[string]string{
+		".py": "python", ".json": "json", ".json5": "json",
+		".go": "go", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+		".diff": "diff", ".patch": "diff", ".toml": "toml",
+		".sh": "bash", ".bash": "bash", ".js": "javascript",
+		".ts": "typescript", ".html": "html", ".css": "css", ".sql": "sql",
+		".rs": "rust", ".c": "c", ".cpp": "cpp", ".h": "cpp",
+	}
+}
+
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

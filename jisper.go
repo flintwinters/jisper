@@ -169,26 +169,6 @@ func getModelCode(config map[string]any) string {
 	return model
 }
 
-func resolveRoutineTask(config map[string]any, routineName string) (string, bool) {
-	name := strings.TrimSpace(routineName)
-	if name == "" {
-		return "", false
-	}
-	routinesAny, ok := config["routines"]
-	if !ok {
-		return "", false
-	}
-	routines, ok := routinesAny.(map[string]any)
-	if !ok {
-		return "", false
-	}
-	taskAny, ok := routines[name]
-	if !ok {
-		return "", false
-	}
-	return asNonEmptyStr(taskAny)
-}
-
 func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	fullRaw := asListOfNonEmptyStr(config["full_files"])
 	structRaw := asListOfNonEmptyStr(config["structural_level_files"])
@@ -529,16 +509,7 @@ func guessLexer(text string, filename string, language string) string {
 		return language
 	}
 	if filename != "" {
-		ext := strings.ToLower(filepath.Ext(filename))
-		mapping := map[string]string{
-			".py": "python", ".json": "json", ".json5": "json",
-			".go": "go", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
-			".diff": "diff", ".patch": "diff", ".toml": "toml",
-			".sh": "bash", ".bash": "bash", ".js": "javascript",
-			".ts": "typescript", ".html": "html", ".css": "css", ".sql": "sql",
-			".rs": "rust", ".c": "c", ".cpp": "cpp", ".h": "cpp",
-		}
-		if l, ok := mapping[ext]; ok {
+		if l, ok := GetExtLexerMapping()[strings.ToLower(filepath.Ext(filename))]; ok {
 			return l
 		}
 	}
