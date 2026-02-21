@@ -787,7 +787,8 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := gotextdiff.ToUnified("a", "b", oldText, edits)
 	lexer := guessLexer(oldText+"\n"+newText, filename, language)
-	styleDel, styleIns := pterm.NewStyle(pterm.FgLightRed, pterm.BgRed), pterm.NewStyle(pterm.FgLightGreen, pterm.BgGreen)
+	styleDel := pterm.NewStyle(pterm.FgLightRed).AddBackground(pterm.NewRGB(80, 0, 0))
+	styleIns := pterm.NewStyle(pterm.FgLightGreen).AddBackground(pterm.NewRGB(0, 80, 0))
 	styleDelPre, styleInsPre := pterm.NewStyle(pterm.FgLightRed), pterm.NewStyle(pterm.FgLightGreen)
 	out := []string{}
 	for _, hunk := range diff.Hunks {
@@ -1242,7 +1243,7 @@ func executeRunAction(c *cli.Context) error {
 	if msg == "" {
 		msg = "Apply model edits"
 	}
-	pterm.Info.Printfln("Commit message: %s", msg)
+	pterm.Info.Printfln("Commit: %s", msg)
 	if cost := estimateCostUSD(code, usage); cost != nil {
 		pterm.Success.Printfln("$%.4f", *cost)
 	}
