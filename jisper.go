@@ -174,13 +174,15 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	structRaw := asListOfNonEmptyStr(config["structural_level_files"])
 	inputRaw := asListOfNonEmptyStr(config["input_level_files"])
 
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles raw counts: full=%d struct=%d input=%d\n", len(fullRaw), len(structRaw), len(inputRaw))
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles raw counts: full=%d struct=%d input=%d\n",
+		len(fullRaw), len(structRaw), len(inputRaw))
 
 	fullFiles := resolvePathsAndGlobs(fullRaw, baseDir)
 	structFiles := resolvePathsAndGlobs(structRaw, baseDir)
 	inputFiles := resolvePathsAndGlobs(inputRaw, baseDir)
 
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles resolved counts: full=%d struct=%d input=%d\n", len(fullFiles), len(structFiles), len(inputFiles))
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles resolved counts: full=%d struct=%d input=%d\n",
+		len(fullFiles), len(structFiles), len(inputFiles))
 
 	fullSet := map[string]bool{}
 	for _, f := range fullFiles {
@@ -204,7 +206,8 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	}
 
 	sourceFiles := dedupeKeepOrder(append(append([]string{}, fullFiles...), append(structOut, inputOut...)...))
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles final counts: full=%d structOut=%d inputOut=%d sourceFiles=%d\n", len(fullFiles), len(structOut), len(inputOut), len(sourceFiles))
+	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles final counts: full=%d structOut=%d inputOut=%d sourceFiles=%d\n",
+		len(fullFiles), len(structOut), len(inputOut), len(sourceFiles))
 	return IncludedFiles{
 		FullFiles:            fullFiles,
 		StructuralLevelFiles: structOut,
@@ -464,7 +467,8 @@ func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Us
 }
 
 func applyOneReplacement(original string, oldString string, newString string) (string, string, bool) {
-	fmt.Fprintf(os.Stderr, "DEBUG: applyOneReplacement oldStringLen=%d newStringLen=%d originalLen=%d\n", len(oldString), len(newString), len(original))
+	fmt.Fprintf(os.Stderr, "DEBUG: applyOneReplacement oldStringLen=%d newStringLen=%d originalLen=%d\n",
+		len(oldString), len(newString), len(original))
 	replaceIf := func(haystack string, needle string) (string, bool) {
 		if needle == "" {
 			return "", false
@@ -830,7 +834,8 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
-		fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements [%d] filename='%s' oldLen=%d newLen=%d\n", i, filename, len(r.OldString), len(r.NewString))
+		fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements [%d] filename='%s' oldLen=%d newLen=%d\n",
+		i, filename, len(r.OldString), len(r.NewString))
 		if filename == "" {
 			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
 			continue
@@ -1033,44 +1038,17 @@ func filterNonEmpty(lines []string) []string {
 	return out
 }
 
-func runBuildStep(config map[string]any, configPath string) *int {
-	buildAny, ok := config["build"]
-	if !ok {
-		return nil
-	}
-	buildCmd, ok := asNonEmptyStr(buildAny)
-	if !ok {
-		return nil
-	}
-	fmt.Printf("\nBuild: %s\n\n", buildCmd)
-
-	cmd := exec.Command("/bin/sh", "-c", buildCmd)
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-	err := cmd.Run()
-	code := 0
+func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code int) {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			code = ee.ExitCode()
-		} else {
-			code = 1
-		}
-	}
-	stdoutStr := sanitizeOutput(stdoutBuf.String())
-	stderrStr := sanitizeOutput(stderrBuf.String())
-
-	b, err := os.ReadFile(configPath)
-	if err != nil {
-		return &code
+		return
 	}
 	var node yaml.Node
 	if err := yaml.Unmarshal(b, &node); err != nil || len(node.Content) == 0 {
-		return &code
+		return
 	}
 	root := node.Content[0]
-	removeKeys := []string{"build_stdout", "build_stderr", "success", "error"}
-	for _, k := range removeKeys {
+	for _, k := range []string{"build_stdout", "build_stderr", "success", "error"} {
 		for i := 0; i < len(root.Content); i += 2 {
 			if i+1 < len(root.Content) && root.Content[i].Value == k {
 				root.Content = append(root.Content[:i], root.Content[i+2:]...)
@@ -1078,37 +1056,42 @@ func runBuildStep(config map[string]any, configPath string) *int {
 			}
 		}
 	}
-	insertAfter := "build"
-	insertIdx := -1
+	idx := -1
 	for i := 0; i < len(root.Content); i += 2 {
-		if root.Content[i].Value == insertAfter {
-			insertIdx = i + 2
+		if root.Content[i].Value == "build" {
+			idx = i + 2
 			break
 		}
 	}
-	addKV := func(k, v string) {
-		nK := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
-		nV := &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
-		if insertIdx >= 0 {
-			root.Content = append(root.Content[:insertIdx], append([]*yaml.Node{nK, nV}, root.Content[insertIdx:]...)...)
-			insertIdx += 2
+	add := func(k, v string) {
+		nk, nv := &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
+		if idx >= 0 {
+			root.Content = append(root.Content[:idx], append([]*yaml.Node{nk, nv}, root.Content[idx:]...)...)
+			idx += 2
 		} else {
-			root.Content = append(root.Content, nK, nV)
+			root.Content = append(root.Content, nk, nv)
 		}
 	}
-	if stdoutStr != "" {
-		addKV("build_stdout", stdoutStr)
-	}
-	if stderrStr != "" {
-		addKV("build_stderr", stderrStr)
-	}
-	if code == 0 {
-		addKV("success", "true")
-	} else {
-		addKV("error", fmt.Sprintf("build failed (%d)", code))
-	}
+	if stdout != "" { add("build_stdout", stdout) }
+	if stderr != "" { add("build_stderr", stderr) }
+	if code == 0 { add("success", "true") } else { add("error", fmt.Sprintf("build failed (%d)", code)) }
 	out, _ := yaml.Marshal(&node)
-	_ = os.WriteFile(configPath, out, 0o644)
+	_ = os.WriteFile(path, out, 0o644)
+}
+
+func runBuildStep(config map[string]any, configPath string) *int {
+	cmdStr, ok := asNonEmptyStr(config["build"])
+	if !ok { return nil }
+	fmt.Printf("\nBuild: %s\n\n", cmdStr)
+	cmd := exec.Command("/bin/sh", "-c", cmdStr)
+	var outB, errB bytes.Buffer
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(os.Stdout, &outB), io.MultiWriter(os.Stderr, &errB)
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok { code = ee.ExitCode() } else { code = 1 }
+	}
+	updatePromptConfigWithBuildResults(configPath, sanitizeOutput(outB.String()), sanitizeOutput(errB.String()), code)
 	return &code
 }
 

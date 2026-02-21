@@ -100,14 +100,6 @@ func flatMapStr(xs []string, fn func(string) []string) []string {
 	return out
 }
 
-func readTextOrNone(path string) (string, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
 func readFileContent(baseDir, filename string) (string, bool) {
 	path := filepath.Join(baseDir, filename)
 	b, err := os.ReadFile(path)
