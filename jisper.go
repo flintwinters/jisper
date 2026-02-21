@@ -24,6 +24,7 @@ import (
 
 const (
 	DefaultPromptFile             = "prompt.yaml"
+	DefaultTemplatePromptFile     = "default_prompt.yaml"
 	DefaultAPIKeyEnvVar           = "OPENAI_API_KEY"
 	DefaultURL                    = "https://api.openai.com/v1/chat/completions"
 	DefaultFallbackInputUSDPer1M  = 5.0
@@ -982,6 +983,61 @@ func initRepoIfMissing(baseDir string) string {
 	return baseDir
 }
 
+func stripANSI(s string) string {
+	result := []byte{}
+	inEscape := false
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if inEscape {
+			if b == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		if b == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			inEscape = true
+			i++
+			continue
+		}
+		result = append(result, b)
+	}
+	return string(result)
+}
+
+func collapseCRUpdates(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(line, "\r")
+		if len(parts) > 0 {
+			out = append(out, parts[len(parts)-1])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func sanitizeOutput(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = collapseCRUpdates(raw)
+	raw = stripANSI(raw)
+	lines := filterNonEmpty(strings.Split(raw, "\n"))
+	raw = strings.Join(lines, "\n")
+	if raw != "" && !strings.HasSuffix(raw, "\n") {
+		raw += "\n"
+	}
+	return raw
+}
+
+func filterNonEmpty(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 func runBuildStep(config map[string]any, configPath string) *int {
 	buildAny, ok := config["build"]
 	if !ok {
@@ -994,8 +1050,9 @@ func runBuildStep(config map[string]any, configPath string) *int {
 	fmt.Printf("\nBuild: %s\n\n", buildCmd)
 
 	cmd := exec.Command("/bin/sh", "-c", buildCmd)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	err := cmd.Run()
 	code := 0
 	if err != nil {
@@ -1005,6 +1062,9 @@ func runBuildStep(config map[string]any, configPath string) *int {
 			code = 1
 		}
 	}
+	stdoutStr := sanitizeOutput(stdoutBuf.String())
+	stderrStr := sanitizeOutput(stderrBuf.String())
+
 	b, err := os.ReadFile(configPath)
 	if err != nil {
 		return &code
@@ -1014,22 +1074,43 @@ func runBuildStep(config map[string]any, configPath string) *int {
 		return &code
 	}
 	root := node.Content[0]
-	updateKey := func(k string, v any) {
-		valStr := fmt.Sprintf("%v", v)
+	removeKeys := []string{"build_stdout", "build_stderr", "success", "error"}
+	for _, k := range removeKeys {
 		for i := 0; i < len(root.Content); i += 2 {
-			if root.Content[i].Value == k {
-				root.Content[i+1].Value = valStr
-				return
+			if i+1 < len(root.Content) && root.Content[i].Value == k {
+				root.Content = append(root.Content[:i], root.Content[i+2:]...)
+				break
 			}
 		}
-		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Value: k},
-			&yaml.Node{Kind: yaml.ScalarNode, Value: valStr})
+	}
+	insertAfter := "build"
+	insertIdx := -1
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == insertAfter {
+			insertIdx = i + 2
+			break
+		}
+	}
+	addKV := func(k, v string) {
+		nK := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
+		nV := &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
+		if insertIdx >= 0 {
+			root.Content = append(root.Content[:insertIdx], append([]*yaml.Node{nK, nV}, root.Content[insertIdx:]...)...)
+			insertIdx += 2
+		} else {
+			root.Content = append(root.Content, nK, nV)
+		}
+	}
+	if stdoutStr != "" {
+		addKV("build_stdout", stdoutStr)
+	}
+	if stderrStr != "" {
+		addKV("build_stderr", stderrStr)
 	}
 	if code == 0 {
-		updateKey("success", "true")
+		addKV("success", "true")
 	} else {
-		updateKey("error", fmt.Sprintf("build failed (%d)", code))
+		addKV("error", fmt.Sprintf("build failed (%d)", code))
 	}
 	out, _ := yaml.Marshal(&node)
 	_ = os.WriteFile(configPath, out, 0o644)
@@ -1188,7 +1269,32 @@ func run(path string, routine string, debug bool, noModel bool) (ModelResponse, 
 	return mr, usage, code, cfg
 }
 
-func estimateCostUSD(modelCode string, usage Usage) *float64 {
+func getModelPrices(config map[string]any) map[string]Prices {
+	prices := make(map[string]Prices)
+	for k, v := range ModelPricesUSDPer1M {
+		prices[k] = v
+	}
+	customAny, ok := config["model_prices_usd_per_1m"]
+	if !ok {
+		return prices
+	}
+	custom, ok := customAny.(map[string]any)
+	if !ok {
+		return prices
+	}
+	for model, val := range custom {
+		if arr, ok := val.([]any); ok && len(arr) >= 2 {
+			inPrice, ok1 := coerceFloat(arr[0])
+			outPrice, ok2 := coerceFloat(arr[1])
+			if ok1 && ok2 {
+				prices[model] = Prices{InUSDPer1M: inPrice, OutUSDPer1M: outPrice}
+			}
+		}
+	}
+	return prices
+}
+
+func estimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *float64 {
 	pt := 0
 	ct := 0
 	if usage.PromptTokens != nil {
@@ -1200,18 +1306,46 @@ func estimateCostUSD(modelCode string, usage Usage) *float64 {
 	if pt == 0 && ct == 0 {
 		return nil
 	}
-	prices, ok := ModelPricesUSDPer1M[modelCode]
+	p, ok := prices[modelCode]
 	if !ok {
-		prices = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
+		p = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
 	}
-	cost := (float64(pt)*prices.InUSDPer1M + float64(ct)*prices.OutUSDPer1M) / 1_000_000.0
+	cost := (float64(pt)*p.InUSDPer1M + float64(ct)*p.OutUSDPer1M) / 1_000_000.0
 	return &cost
+}
+
+func writeDefaultPromptToCWD() int {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Cannot determine executable path")
+		return 1
+	}
+	src := filepath.Join(filepath.Dir(exe), DefaultTemplatePromptFile)
+	if _, err := os.Stat(src); err != nil {
+		fmt.Fprintf(os.Stderr, "Missing template prompt file: %s\n", src)
+		return 1
+	}
+	dst := filepath.Join(".", DefaultPromptFile)
+	if _, err := os.Stat(dst); err == nil {
+		fmt.Printf("%s already exists; refusing to overwrite\n", DefaultPromptFile)
+		return 1
+	}
+	content, err := os.ReadFile(src)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read template: %s\n", err)
+		return 1
+	}
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write: %s\n", err)
+		return 1
+	}
+	fmt.Printf("Wrote %s\n", DefaultPromptFile)
+	return 0
 }
 
 func handleGlobalFlags(c *cli.Context) bool {
 	if c.Bool("new") {
-		fmt.Fprintln(os.Stderr, "--new is not implemented")
-		os.Exit(1)
+		os.Exit(writeDefaultPromptToCWD())
 	}
 	if c.Bool("redo") {
 		os.Exit(redoLastCommit("."))
@@ -1244,7 +1378,8 @@ func executeRunAction(c *cli.Context) error {
 		msg = "Apply model edits"
 	}
 	pterm.Info.Printfln("Commit: %s", msg)
-	if cost := estimateCostUSD(code, usage); cost != nil {
+	prices := getModelPrices(config)
+	if cost := estimateCostUSD(code, usage, prices); cost != nil {
 		pterm.Success.Printfln("$%.4f", *cost)
 	}
 	repo := initRepoIfMissing(".")

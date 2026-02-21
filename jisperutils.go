@@ -94,6 +94,18 @@ func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]
 	for k, v := range cfg {
 		m[k] = v
 	}
+	if v, ok := cfg["build_stdout"]; ok {
+		m["build_stdout"] = v
+	}
+	if v, ok := cfg["build_stderr"]; ok {
+		m["build_stderr"] = v
+	}
+	if v, ok := cfg["success"]; ok {
+		m["success"] = v
+	}
+	if v, ok := cfg["error"]; ok {
+		m["error"] = v
+	}
 	return m
 }
 
@@ -156,3 +168,30 @@ func coerceInt(v any) *int {
 	}
 }
 
+func coerceFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case int:
+		return float64(x), true
+	case json.Number:
+		f, err := x.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return 0, false
+		}
+		n := json.Number(s)
+		f, err := n.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	default:
+		return 0, false
+	}
+}
