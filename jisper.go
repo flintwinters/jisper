@@ -842,7 +842,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			pterm.DefaultHeader.WithFullWidth().Println(filename)
+			pterm.NewStyle(pterm.FgLightCyan).Println(filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
@@ -861,7 +861,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Info.Printfln("No changes applied to %s", filename)
 			continue
 		}
-		pterm.DefaultHeader.WithFullWidth().Println(filename)
+		pterm.NewStyle(pterm.FgLightCyan).Println(filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
 		changed = append(changed, targetPath)
