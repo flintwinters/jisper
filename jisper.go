@@ -787,8 +787,8 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 	edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
 	diff := gotextdiff.ToUnified("a", "b", oldText, edits)
 	lexer := guessLexer(oldText+"\n"+newText, filename, language)
-	styleDel := pterm.NewStyle(pterm.FgLightRed).AddBackground(pterm.NewRGB(80, 0, 0))
-	styleIns := pterm.NewStyle(pterm.FgLightGreen).AddBackground(pterm.NewRGB(0, 80, 0))
+	styleDel := pterm.NewStyle(pterm.FgLightRed, pterm.NewRGB(80, 0, 0).Bg())
+	styleIns := pterm.NewStyle(pterm.FgLightGreen, pterm.NewRGB(0, 80, 0).Bg())
 	styleDelPre, styleInsPre := pterm.NewStyle(pterm.FgLightRed), pterm.NewStyle(pterm.FgLightGreen)
 	out := []string{}
 	for _, hunk := range diff.Hunks {
