@@ -1259,6 +1259,120 @@ func callModel(endpoint string, key string, pl payload, config map[string]any) (
 	return mr, usage, modelCode
 }
 
+func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
+	modelCode := getModelCode(config)
+	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
+	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
+	if err != nil {
+		spinner.Fail(err.Error())
+		os.Exit(1)
+	}
+	usage := extractUsageFromAPIResponse(apiJSON, headers)
+	mr, err := parseModelResponse(apiJSON)
+	if err != nil {
+		spinner.Fail(err.Error())
+		os.Exit(1)
+	}
+	spinner.Success()
+	return mr, usage, modelCode
+}
+
+func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string) (payload, string) {
+	systemInstruction := "You are a helpful assistant."
+	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
+		systemInstruction = s
+	}
+	systemPromptForCtx := resolveSystemPrompt(promptConfig)
+	ctx := buildJinjaContext(promptConfig, sourceText, task, systemPromptForCtx)
+	renderedSystem := render(systemPromptForCtx, ctx)
+	renderedTask := render(task, ctx)
+	modelCode := getModelCode(promptConfig)
+	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
+		renderedSystem, renderedTask, sourceText)
+	pl := payload{
+		Model: modelCode,
+		Messages: []message{
+			{Role: "system", Content: systemInstruction},
+			{Role: "user", Content: promptContent},
+		},
+	}
+	if schema, ok := promptConfig["output_schema"]; ok && schema != nil {
+		pl.ResponseFormat = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "response_schema",
+				"strict": true,
+				"schema": schema,
+			},
+		}
+	} else {
+		pl.ResponseFormat = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "response_schema",
+				"strict": true,
+				"schema": DefaultOutputSchema,
+			},
+		}
+	}
+	return pl, promptContent
+}
+
+func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
+	config, err := loadPromptFile(promptPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	endpointURL := DefaultURL
+	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
+		endpointURL = s
+	}
+	keyVar := DefaultAPIKeyEnvVar
+	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
+		keyVar = s
+	}
+	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
+		keyVar = "OPENROUTER_API_KEY"
+	}
+	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	for i, issue := range issues.Issues {
+		pterm.Info.Printfln("Issue %d/%d: %s - %s", i+1, len(issues.Issues), issue.FromLinter, issue.Text)
+		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
+		if !ok {
+			pterm.Error.Printfln("Failed to read %s", issue.Pos.Filename)
+			continue
+		}
+		task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
+			issue.Pos.Filename, issue.Pos.Line, issue.FromLinter, issue.Text, context)
+		pl, content := buildPayloadWithTask(config, context, task)
+		if debug {
+			fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
+		}
+		if noModel {
+			enc, _ := json.MarshalIndent(pl, "", "  ")
+			fmt.Println(string(enc))
+			continue
+		}
+		mr, usage, modelCode := callModel(endpointURL, apiKey, pl, config)
+		lang, _ := asNonEmptyStr(config["language"])
+		changed := applyReplacements(mr.Edit.Replacements, ".", lang)
+		msg := strings.TrimSpace(mr.Edit.CommitMessage)
+		if msg == "" {
+			msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)
+		}
+		pterm.Info.Printfln("Commit: %s", msg)
+		prices := getModelPrices(config)
+		if cost := estimateCostUSD(modelCode, usage, prices); cost != nil {
+			pterm.Success.Printfln("$%.4f", *cost)
+		}
+		repo := initRepoIfMissing(".")
+		if len(changed) > 0 {
+			stageAndCommit(repo, changed, msg)
+		}
+	}
+}
+
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
 	cfg, pl, content, key, endpoint := prepareRun(path, routine)
 	if debug {
@@ -1371,7 +1485,7 @@ func executeRunAction(c *cli.Context) error {
 			fmt.Fprintf(os.Stderr, "Failed to load issues: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "DEBUG: Loaded %d issues from %s\n", len(issues.Issues), issuesFile)
+		runIssues(issues, promptPath, c.Bool("debug"), c.Bool("no-model"))
 		return nil
 	}
 	promptPath := c.String("prompt")

@@ -247,6 +247,27 @@ type IssuesFile struct {
 	Issues []Issue `json:"Issues"`
 }
 
+func extractLinesAround(filename string, lineNum int, baseDir string, before int, after int) (string, bool) {
+	content, ok := readFileContent(baseDir, filename)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	idx := lineNum - 1
+	if idx < 0 || idx >= len(lines) {
+		return "", false
+	}
+	start := idx - before
+	if start < 0 {
+		start = 0
+	}
+	end := idx + after + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n"), true
+}
+
 func loadIssuesFile(path string) (IssuesFile, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
