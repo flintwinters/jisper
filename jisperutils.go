@@ -32,11 +32,11 @@ func GetExtLexerMapping() map[string]string {
 }
 
 func keysOf(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
+	res := make([]string, 0, len(m))
 	for k := range m {
-		keys = append(keys, k)
+		res = append(res, k)
 	}
-	return keys
+	return res
 }
 
 func asNonEmptyStr(v any) (string, bool) {
@@ -167,8 +167,8 @@ func resolveUserTask(config map[string]any, routineName string) string {
 	if t, ok := resolveRoutineTask(config, routineName); ok {
 		return t
 	}
-	t, _ := asNonEmptyStr(config["task"])
-	return t
+	task, _ := asNonEmptyStr(config["task"])
+	return task
 }
 
 func coerceInt(v any) *int {
