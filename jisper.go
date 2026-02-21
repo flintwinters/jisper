@@ -1155,7 +1155,8 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 }
 
 func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
-	spinner, _ := pterm.DefaultSpinner.Start("Waiting for model...")
+	modelCode := getModelCode(config)
+	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
 	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
 	if err != nil {
 		spinner.Fail(err.Error())
@@ -1168,7 +1169,7 @@ func callModel(endpoint string, key string, pl payload, config map[string]any) (
 		os.Exit(1)
 	}
 	spinner.Success()
-	return mr, usage, getModelCode(config)
+	return mr, usage, modelCode
 }
 
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
