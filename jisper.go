@@ -816,7 +816,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			pterm.NewStyle(pterm.FgLightCyan).Println(filename)
+			fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
