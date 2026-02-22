@@ -385,6 +385,7 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 	systemPromptForCtx := resolveSystemPrompt(promptConfig)
 
 	userTask := resolveUserTask(promptConfig, routineName)
+	modelCode := getModelCode(promptConfig)
 
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
 	renderedSystem := render(systemPromptForCtx, ctx)
@@ -392,9 +393,6 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 
 	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
 		renderedSystem, renderedTask, sourceText)
-
-	pl := payload{
-		Model: modelCode,
 		Messages: []message{
 			{Role: "system", Content: systemInstruction},
 			{Role: "user", Content: promptContent},
@@ -486,7 +484,7 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 		return leading + replacedCore + trailing, trimmedOld, true
 	}
 
-	return "", matchedOld, false
+	return "", "", false
 }
 
 func guessLexer(text string, filename string, language string) string {
