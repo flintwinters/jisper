@@ -97,7 +97,8 @@ func redoLastCommit(baseDir string) int {
 	}
 	origPath := filepath.Join(repoRoot, ".git", "ORIG_HEAD")
 	if _, err := os.Stat(origPath); err != nil {
-		fmt.Fprintln(os.Stderr, "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.", "Run 'git reflog' to find the commit you want to restore.")
+		fmt.Fprintln(os.Stderr, "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.")
+fmt.Fprintln(os.Stderr, "Run 'git reflog' to find the commit you want to restore.")
 		return 1
 	}
 	out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
