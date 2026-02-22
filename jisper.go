@@ -1250,6 +1250,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	apiKey := validateAndGetAPIKey(keyVar)
 	modelCode := getModelCode(config)
 	fmt.Fprintf(os.Stderr, "DEBUG: modelCode=%q endpointURL=%q keyVar=%q\n", modelCode, endpointURL, keyVar)
+	var totalCost float64
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
@@ -1280,12 +1281,17 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		prices := getModelPrices(config)
 		if cost := estimateCostUSD(mc, usage, prices); cost != nil {
 			pterm.Success.Printfln("$%.4f", *cost)
+			totalCost += *cost
 		}
 		repo := initRepoIfMissing(".")
 		if len(changed) > 0 {
 			stageAndCommit(repo, changed, msg)
 		}
 	}
+	if totalCost > 0 {
+		pterm.Info.Printfln("Total spent: $%.4f", totalCost)
+	}
+	_ = runBuildStep(config, promptPath)
 }
 
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
