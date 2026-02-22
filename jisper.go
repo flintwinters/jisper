@@ -1076,7 +1076,11 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 		if len(contentPreview) > 500 {
 			contentPreview = contentPreview[:500] + "... (truncated)"
 		}
-		return ModelResponse{}, fmt.Errorf("failed to parse model response content as JSON. Parse error: %w. Content: %s", err, contentPreview)
+		errMsg := fmt.Errorf(
+		"failed to parse model response content as JSON. Parse error: %w. Content: %s",
+		err, contentPreview,
+	)
+	return ModelResponse{}, errMsg
 	}
 	return mr, nil
 }
