@@ -1243,16 +1243,20 @@ func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task s
 }
 
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
+	modelCode := getModelCode(config)
+	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
 	apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
 	if err != nil {
+		spinner.Fail("Failed")
 		os.Exit(1)
 	}
 	mr, err := parseModelResponse(apiJSON)
 	if err != nil {
+		spinner.Fail("Failed")
 		os.Exit(1)
 	}
+	spinner.Success()
 	usage := extractUsageFromAPIResponse(apiJSON, headers)
-	modelCode := getModelCode(config)
 	return mr, usage, modelCode
 }
 
