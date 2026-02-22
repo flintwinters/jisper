@@ -1418,9 +1418,8 @@ func executeRunAction(c *cli.Context) error {
 	if !c.IsSet("prompt") && c.NArg() > 0 {
 		promptPath = c.Args().First()
 	}
-		if _, err := os.Stat(c.Args().Get(0)); err == nil {
-			promptPath = c.Args().Get(0)
-		}
+	if _, err := os.Stat(c.Args().Get(0)); err == nil {
+		promptPath = c.Args().Get(0)
 	}
 	routine := ""
 	if c.NArg() > 0 && c.Args().Get(0) != promptPath {
