@@ -56,11 +56,25 @@ def test():
 
 @app.command()
 def build():
-    """Build the main backend binary."""
+    """Build the main backend binary, showing errors on failure."""
     out_dir = project_root / "bin"
     out_dir.mkdir(exist_ok=True)
     go_files = [f.name for f in project_root.glob("*.go")]
-    run(["go", "build", "-o", str(out_dir)] + go_files)
+    # Run go build, capturing stdout and stderr for detailed error reporting
+    result = subprocess.run(
+        ["go", "build", "-o", str(out_dir)] + go_files,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        console.print("[bold red]Build failed:[/bold red]")
+        if result.stdout:
+            console.print(Text(result.stdout, style="red"))
+        if result.stderr:
+            console.print(Text(result.stderr, style="red"))
+        sys.exit(result.returncode)
+    console.print("[bold green]Build succeeded.[/bold green]")
 
 
 @app.command()
