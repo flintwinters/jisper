@@ -839,8 +839,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string, con
 		if !applied {
 			oldPreview := r.OldString
 			if len(oldPreview) > 200 {
-				oldPreview = oldPreview[:200] + "... (truncated, total length: " +
-    fmt.Sprintf("%d", len(r.OldString)) + " chars)"
+				oldPreview = oldPreview[:200] + "... (truncated, total length: " + fmt.Sprintf("%d", len(r.OldString)) + " chars)"
 			}
 			pterm.Warning.Printfln("old_string not found in %s; skipping replacement #%d. Searched for (first 200 chars): %q", filename, i, oldPreview)
 			writeFailedOldStringToConfig(configPath, r.OldString)
