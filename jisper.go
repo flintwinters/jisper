@@ -100,7 +100,7 @@ func flatMapStr(in []string, f func(string) []string) []string {
 	return out
 }
 
-func asNonEmptyStr(v any) (string, bool) {
+// duplicate functions removed(v any) (string, bool) {
 	s, ok := v.(string)
 	return strings.TrimSpace(s), ok && strings.TrimSpace(s) != ""
 }
@@ -146,9 +146,13 @@ func extractLinesAround(filename string, line int, baseDir string, before, after
 	}
 	lines := strings.Split(content, "\n")
 	start := line - before - 1
-	if start < 0 { start = 0 }
+	if start < 0 {
+		start = 0
+	}
 	end := line + after
-	if end > len(lines) { end = len(lines) }
+	if end > len(lines) {
+		end = len(lines)
+	}
 	return strings.Join(lines[start:end], "\n"), true
 }
 
