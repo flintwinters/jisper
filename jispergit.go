@@ -78,8 +78,8 @@ func undoLastCommit(baseDir string) int {
 	}
 	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
 	if code != 0 {
-		fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit). ")
-		"Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
+		fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit).")
+		fmt.Fprintln(os.Stderr, "Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
 		return 1
 	}
 	_, code = runCmd(repoRoot, "git", "reset", "--hard", "HEAD~1")
