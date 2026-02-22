@@ -1362,8 +1362,9 @@ func writeDefaultPromptToCWD() int {
 	}
 	src := filepath.Join(filepath.Dir(exe), DefaultTemplatePromptFile)
 	if _, err := os.Stat(src); err != nil {
-		fmt.Fprintf(os.Stderr, "Missing template prompt file: %s (error: %v). " +
-    "The executable may be corrupted or installed incorrectly.\n", src, err)
+		msg := "Missing template prompt file: %s (error: %v). " +
+    "The executable may be corrupted or installed incorrectly.\n"
+fmt.Fprintf(os.Stderr, msg, src, err)
 		return 1
 	}
 	dst := filepath.Join(".", DefaultPromptFile)
