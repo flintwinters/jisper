@@ -105,7 +105,7 @@ func redoLastCommit(baseDir string) int {
 	out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
 	sha := strings.TrimSpace(out)
 	if sha == "" {
-		fmt.Fprintln(os.Stderr, "Cannot redo: ORIG_HEAD is empty. Run 'git reflog' to find the commit you want to restore.")
+		fmt.Fprintln(os.Stderr, "Cannot redo: ORIG_HEAD is empty. Run 'git reflog' to find commit to restore.")
 		return 1
 	}
 	_, code := runCmd(repoRoot, "git", "reset", "--hard", sha)
