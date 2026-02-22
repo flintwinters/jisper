@@ -386,7 +386,6 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 
 	userTask := resolveUserTask(promptConfig, routineName)
 
-	modelCode := getModelCode(promptConfig)
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
 	renderedSystem := render(systemPromptForCtx, ctx)
 	renderedTask := render(userTask, ctx)
@@ -466,9 +465,8 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	}
 
 	updated, ok := replaceIf(original, oldString)
-	matchedOld := oldString
 	if ok {
-		return updated, matchedOld, true
+		return updated, oldString, true
 	}
 
 	trimmedOld := strings.TrimSpace(oldString)
@@ -1387,7 +1385,7 @@ func executeRunAction(c *cli.Context) error {
 	} else if c.NArg() > 1 {
 		routine = c.Args().Get(1)
 	}
-	mr, usage, code, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
+	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
 	lang, _ := asNonEmptyStr(config["language"])
 	changed := applyReplacements(mr.Edit.Replacements, ".", lang)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
@@ -1396,7 +1394,7 @@ func executeRunAction(c *cli.Context) error {
 	}
 	pterm.Info.Printfln("Commit: %s", msg)
 	prices := getModelPrices(config)
-	if cost := estimateCostUSD(code, usage, prices); cost != nil {
+	if cost := estimateCostUSD(mc, usage, prices); cost != nil {
 		pterm.Success.Printfln("$%.4f", *cost)
 	}
 	repo := initRepoIfMissing(".")
