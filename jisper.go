@@ -75,6 +75,83 @@ var DefaultOutputSchema = map[string]any{
 	"required": []string{"edit"},
 }
 
+func toRel(base, target string) string {
+	r, _ := filepath.Rel(base, target)
+	return r
+}
+
+func dedupeKeepOrder(in []string) []string {
+	m := make(map[string]bool)
+	out := []string{}
+	for _, s := range in {
+		if !m[s] {
+			m[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func flatMapStr(in []string, f func(string) []string) []string {
+	out := []string{}
+	for _, s := range in {
+		out = append(out, f(s)...)
+	}
+	return out
+}
+
+func asNonEmptyStr(v any) (string, bool) {
+	s, ok := v.(string)
+	return strings.TrimSpace(s), ok && strings.TrimSpace(s) != ""
+}
+
+func asListOfNonEmptyStr(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		return []string{}
+	}
+	out := []string{}
+	for _, item := range raw {
+		if s, ok := asNonEmptyStr(item); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func readFileContent(baseDir, filename string) (string, bool) {
+	b, err := os.ReadFile(filepath.Join(baseDir, filename))
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+func loadIssuesFile(path string) (IssuesFile, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return IssuesFile{}, err
+	}
+	var iss IssuesFile
+	if err := json.Unmarshal(b, &iss); err != nil {
+		return IssuesFile{}, err
+	}
+	return iss, nil
+}
+
+func extractLinesAround(filename string, line int, baseDir string, before, after int) (string, bool) {
+	content, ok := readFileContent(baseDir, filename)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	start := line - before - 1
+	if start < 0 { start = 0 }
+	end := line + after
+	if end > len(lines) { end = len(lines) }
+	return strings.Join(lines[start:end], "\n"), true
+}
+
 func resolveOnePath(v string, baseDir string) []string {
 	s := strings.TrimSpace(v)
 	if s == "" {
