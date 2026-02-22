@@ -164,3 +164,16 @@ model_prices_usd_per_1m:
   my-model: [2.0, 6.0]
 ```
 
+## Error handling
+
+Jisper provides detailed, actionable error messages for all failure modes. Errors include:
+
+- **API errors**: HTTP status code, response body, endpoint URL, and model identifier
+- **JSON parsing errors**: The malformed content snippet and parsing context
+- **File operation errors**: Full path, operation type, and underlying system error
+- **Config errors**: Missing/invalid keys with expected format and examples
+- **Routine errors**: Unknown routine name with list of available routines
+- **Replacement errors**: Filename, old_string preview, and specific failure reason
+
+Error messages are designed to be copy-pasteable and include enough context to diagnose and fix the issue without rerunning with debug flags.
+

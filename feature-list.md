@@ -144,7 +144,6 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
   - [x] Captures stdout/stderr and writes `build_stdout`/`build_stderr` back to prompt config.
   - [x] Writes `success: true` flag on exit code 0.
   - [x] Writes `error: "build failed (<code>)"` on non-zero exit.
-  - [x] Removes existing `build_stdout`, `build_stderr`, `success`, `error` keys before rewriting.
 
 ## Misc / defaults
 
@@ -153,5 +152,16 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
   - [x] default endpoint: OpenAI chat completions URL
   - [x] default API key env var: `OPENAI_API_KEY` (auto-switches for OpenRouter)
 - [x] Uses UTF-8 for reading/writing text files.
+
+## Error handling
+
+- [x] All errors include specific, actionable diagnostic information.
+- [x] API/network errors include: HTTP status code, response body, endpoint URL, model identifier.
+- [x] JSON parsing errors include: truncated content preview, position context, expected structure.
+- [x] File operation errors include: full path, operation type, underlying system error.
+- [x] Config errors include: missing/invalid key name, expected format, example values.
+- [x] Routine errors include: unknown routine name, sorted list of available routine names.
+- [x] Replacement errors include: filename, old_string preview (first 200 chars), specific failure reason.
+- [x] Error messages are copy-pasteable and self-contained for debugging without re-running.
 
 

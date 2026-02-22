@@ -143,8 +143,6 @@ type Pos struct {
 	Column   int    `json:"Column"`
 }
 
-
-
 type Usage struct {
 	PromptTokens     *int `json:"prompt_tokens"`
 	CompletionTokens *int `json:"completion_tokens"`
@@ -157,18 +155,20 @@ type Prices struct {
 }
 
 var ModelPricesUSDPer1M = map[string]Prices{
-	"gpt-5.2":                   {InUSDPer1M: 5.0, OutUSDPer1M: 15.0},
-	"gpt-5-mini":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.0},
+	"gpt-5.2":                   {InUSDPer1M: 5.0,  OutUSDPer1M: 15.0},
+	"gpt-5-mini":                {InUSDPer1M: 1.0,  OutUSDPer1M: 3.0},
 	"qwen/qwen3-coder:exacto":   {InUSDPer1M: 0.22, OutUSDPer1M: 1.8},
 	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
-	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
+	"z-ai/glm-5":                {InUSDPer1M: 1.0,  OutUSDPer1M: 3.2},
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
+	"minimax/minimax-m2.5": 	 {InUSDPer1M: 0.30, OutUSDPer1M: 1.10},
 }
 
 func getModelCode(config map[string]any) string {
 	model, ok := asNonEmptyStr(config["model"])
 	if !ok {
-		fmt.Fprintln(os.Stderr, "Missing required config key: model")
+		fmt.Fprintln(os.Stderr, "Missing required config key: 'model'. Add a model identifier to your prompt config, e.g.:")
+		fmt.Fprintln(os.Stderr, "  model: gpt-4")
 		os.Exit(2)
 	}
 	return model
@@ -212,10 +212,6 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 		SourceFiles:          sourceFiles,
 	}
 }
-
-
-
-
 
 func loadPromptFile(path string) (map[string]any, error) {
 	ext := strings.ToLower(filepath.Ext(path))
@@ -821,7 +817,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
 		if filename == "" {
-			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
+			pterm.Error.Printfln("Replacement #%d missing filename; skipping. Replacement object: %+v", i, r)
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
@@ -830,26 +826,36 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
 			fmt.Printf("\n\x1b[1m%s\x1b[0m\n", filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
-			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
+			if err := os.WriteFile(targetPath, []byte(r.NewString), 0o644); err != nil {
+				pterm.Error.Printfln("Failed to create file %s: %v", targetPath, err)
+				continue
+			}
 			changed = append(changed, targetPath)
 			continue
 		}
 		if !ok {
-			pterm.Error.Printfln("Target file not found: %s", targetPath)
+			pterm.Error.Printfln("Target file not found: %s (resolved to: %s). Cannot apply replacement #%d.", filename, targetPath, i)
 			continue
 		}
-		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
+		updated, matchedOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
 		if !applied {
-			pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
+			oldPreview := r.OldString
+			if len(oldPreview) > 200 {
+				oldPreview = oldPreview[:200] + "... (truncated, total length: " + fmt.Sprintf("%d", len(r.OldString)) + " chars)"
+			}
+			pterm.Warning.Printfln("old_string not found in %s; skipping replacement #%d. Searched for (first 200 chars): %q", filename, i, oldPreview)
 			continue
 		}
 		if updated == original {
-			pterm.Info.Printfln("No changes applied to %s", filename)
+			pterm.Info.Printfln("No changes applied to %s (old_string matched but replacement produced identical content)", filename)
 			continue
 		}
 		fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
-		_ = os.WriteFile(targetPath, []byte(updated), 0o644)
+		if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
+			pterm.Error.Printfln("Failed to write file %s: %v", targetPath, err)
+			continue
+		}
 		changed = append(changed, targetPath)
 	}
 	return changed
@@ -906,12 +912,12 @@ func stageAndCommit(repoRoot string, changedFiles []string, message string) {
 func requireValidRepo(baseDir string) (string, bool) {
 	repoRoot, ok := repoFromDir(baseDir)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "Not a git repository")
+		fmt.Fprintln(os.Stderr, "Not a git repository. Run 'git init' to create one, or navigate to a directory inside a git repository.")
 		return "", false
 	}
 	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD")
 	if code != 0 {
-		fmt.Fprintln(os.Stderr, "No valid commits")
+		fmt.Fprintln(os.Stderr, "No valid commits in repository. Create at least one commit before using undo/redo.")
 		return "", false
 	}
 	return repoRoot, true
@@ -924,13 +930,15 @@ func undoLastCommit(baseDir string) int {
 	}
 	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
 	if code != 0 {
-		fmt.Fprintln(os.Stderr, "No parent commit to reset to")
+		fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit). Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
 		return 1
 	}
 	_, code = runCmd(repoRoot, "git", "reset", "--hard", "HEAD~1")
 	if code != 0 {
+		fmt.Fprintln(os.Stderr, "Git reset failed. Check for uncommitted changes or repository corruption.")
 		return 1
 	}
+	fmt.Println("Undid last commit (hard reset to HEAD~1)")
 	return 0
 }
 
@@ -941,19 +949,21 @@ func redoLastCommit(baseDir string) int {
 	}
 	origPath := filepath.Join(repoRoot, ".git", "ORIG_HEAD")
 	if _, err := os.Stat(origPath); err != nil {
-		fmt.Fprintln(os.Stderr, "No ORIG_HEAD found to redo to")
+		fmt.Fprintln(os.Stderr, "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset. Run 'git reflog' to find the commit you want to restore.")
 		return 1
 	}
 	out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
 	sha := strings.TrimSpace(out)
 	if sha == "" {
-		fmt.Fprintln(os.Stderr, "No ORIG_HEAD found to redo to")
+		fmt.Fprintln(os.Stderr, "Cannot redo: ORIG_HEAD is empty. Run 'git reflog' to find the commit you want to restore.")
 		return 1
 	}
 	_, code := runCmd(repoRoot, "git", "reset", "--hard", sha)
 	if code != 0 {
+		fmt.Fprintf(os.Stderr, "Git reset to ORIG_HEAD (%s) failed. The reflog may have more information.\n", sha)
 		return 1
 	}
+	fmt.Printf("Redid undo (reset to ORIG_HEAD: %s)\n", sha[:min(8, len(sha))])
 	return 0
 }
 
@@ -1096,11 +1106,11 @@ func runBuildStep(config map[string]any, configPath string) *int {
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to marshal request payload: %w", err)
 	}
 	req, err := http.NewRequest("POST", endpointURL, bytes.NewReader(b))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create HTTP request to %s: %w", endpointURL, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -1108,23 +1118,31 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("HTTP request to %s failed: %w", endpointURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, err
+		return nil, resp.Header, fmt.Errorf("failed to read response body from %s: %w", endpointURL, err)
 	}
 	if resp.StatusCode != 200 {
-		return nil, resp.Header, fmt.Errorf("API error status=%d body=%s", resp.StatusCode, string(body))
+		bodyPreview := string(body)
+		if len(bodyPreview) > 1000 {
+			bodyPreview = bodyPreview[:1000] + "... (truncated)"
+		}
+		return nil, resp.Header, fmt.Errorf("API request to %s returned status %d. Response body: %s", endpointURL, resp.StatusCode, bodyPreview)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var apiJSON map[string]any
 	if err := dec.Decode(&apiJSON); err != nil {
-		return nil, resp.Header, err
+		bodyPreview := string(body)
+		if len(bodyPreview) > 500 {
+			bodyPreview = bodyPreview[:500] + "... (truncated)"
+		}
+		return nil, resp.Header, fmt.Errorf("failed to parse API response as JSON from %s. Parse error: %w. Response body: %s", endpointURL, err, bodyPreview)
 	}
 	return apiJSON, resp.Header, nil
 }
@@ -1132,46 +1150,61 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	choicesAny, ok := apiJSON["choices"]
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("missing choices")
+		return ModelResponse{}, fmt.Errorf("API response missing 'choices' field. Response keys: %v", getKeys(apiJSON))
 	}
 	choices, ok := choicesAny.([]any)
-	if !ok || len(choices) == 0 {
-		return ModelResponse{}, fmt.Errorf("invalid choices")
+	if !ok {
+		return ModelResponse{}, fmt.Errorf("API response 'choices' is not an array, got %T", choicesAny)
+	}
+	if len(choices) == 0 {
+		return ModelResponse{}, fmt.Errorf("API response 'choices' array is empty")
 	}
 	choice0, ok := choices[0].(map[string]any)
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("invalid choice")
+		return ModelResponse{}, fmt.Errorf("API response choices[0] is not an object, got %T", choices[0])
 	}
 	msgAny, ok := choice0["message"]
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("missing message")
+		return ModelResponse{}, fmt.Errorf("API response choices[0] missing 'message' field. Keys: %v", getKeys(choice0))
 	}
 	msg, ok := msgAny.(map[string]any)
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("invalid message")
+		return ModelResponse{}, fmt.Errorf("API response choices[0].message is not an object, got %T", msgAny)
 	}
 	contentAny, ok := msg["content"]
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("missing content")
+		return ModelResponse{}, fmt.Errorf("API response choices[0].message missing 'content' field. Keys: %v", getKeys(msg))
 	}
 	content, ok := contentAny.(string)
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("invalid content")
+		return ModelResponse{}, fmt.Errorf("API response choices[0].message.content is not a string, got %T", contentAny)
 	}
 	content = stripJSONCodeFence(content)
 	var mr ModelResponse
 	dec := json.NewDecoder(strings.NewReader(content))
 	dec.UseNumber()
 	if err := dec.Decode(&mr); err != nil {
-		return ModelResponse{}, err
+		contentPreview := content
+		if len(contentPreview) > 500 {
+			contentPreview = contentPreview[:500] + "... (truncated)"
+		}
+		return ModelResponse{}, fmt.Errorf("failed to parse model response content as JSON. Parse error: %w. Content: %s", err, contentPreview)
 	}
 	return mr, nil
+}
+
+func getKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func prepareRun(configPath string, routineName string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
+		fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", configPath, err)
 		os.Exit(1)
 	}
 	if strings.TrimSpace(routineName) != "" {
@@ -1182,10 +1215,15 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 				available = append(available, k)
 			}
 			sort.Strings(available)
-			fmt.Fprintf(os.Stderr, "Routine not found: %s\nAvailable: %s\n", routineName, strings.Join(available, ", "))
+			if len(available) == 0 {
+				fmt.Fprintf(os.Stderr, "Routine not found: %s. No routines are defined in the config file.\n", routineName)
+			} else {
+				fmt.Fprintf(os.Stderr, "Routine not found: %s. Available routines: %s\n", routineName, strings.Join(available, ", "))
+			}
 			os.Exit(2)
 		}
 	}
+	modelCode := getModelCode(config)
 	endpointURL := DefaultURL
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
@@ -1198,6 +1236,10 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 		keyVar = "OPENROUTER_API_KEY"
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	if apiKey == "" {
+		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty. Set it with: export %s=your-api-key\n", keyVar, keyVar)
+		os.Exit(1)
+	}
 	sysCtx := resolveSystemPrompt(config)
 	userCtx := resolveUserTask(config, routineName)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
@@ -1258,12 +1300,12 @@ func callModel(endpointURL string, apiKey string, pl payload, config map[string]
 	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
 	apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
 	if err != nil {
-		spinner.Fail("Failed")
+		spinner.Fail(fmt.Sprintf("API call failed for model %s at %s: %v", modelCode, endpointURL, err))
 		os.Exit(1)
 	}
 	mr, err := parseModelResponse(apiJSON)
 	if err != nil {
-		spinner.Fail("Failed")
+		spinner.Fail(fmt.Sprintf("Failed to parse response from %s: %v", modelCode, err))
 		os.Exit(1)
 	}
 	spinner.Success()
@@ -1274,9 +1316,10 @@ func callModel(endpointURL string, apiKey string, pl payload, config map[string]
 func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	config, err := loadPromptFile(promptPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", promptPath, err)
 		os.Exit(1)
 	}
+	modelCode := getModelCode(config)
 	endpointURL := DefaultURL
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
@@ -1289,11 +1332,15 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		keyVar = "OPENROUTER_API_KEY"
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	if apiKey == "" {
+		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty. Set it with: export %s=your-api-key\n", keyVar, keyVar)
+		os.Exit(1)
+	}
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln("Issue %d/%d: %s - %s", i+1, len(issues.Issues), issue.FromLinter, issue.Text)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
 		if !ok {
-			pterm.Error.Printfln("Failed to read %s", issue.Pos.Filename)
+			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.", issue.Pos.Filename, issue.Pos.Line)
 			continue
 		}
 		task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
@@ -1307,7 +1354,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 			fmt.Println(string(enc))
 			continue
 		}
-		mr, usage, modelCode := callModel(endpointURL, apiKey, pl, config)
+		mr, usage, mc := callModel(endpointURL, apiKey, pl, config)
 		lang, _ := asNonEmptyStr(config["language"])
 		changed := applyReplacements(mr.Edit.Replacements, ".", lang)
 		msg := strings.TrimSpace(mr.Edit.CommitMessage)
@@ -1316,7 +1363,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		}
 		pterm.Info.Printfln("Commit: %s", msg)
 		prices := getModelPrices(config)
-		if cost := estimateCostUSD(modelCode, usage, prices); cost != nil {
+		if cost := estimateCostUSD(mc, usage, prices); cost != nil {
 			pterm.Success.Printfln("$%.4f", *cost)
 		}
 		repo := initRepoIfMissing(".")
@@ -1389,26 +1436,26 @@ func estimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *f
 func writeDefaultPromptToCWD() int {
 	exe, err := os.Executable()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Cannot determine executable path")
+		fmt.Fprintf(os.Stderr, "Cannot determine executable path: %v\n", err)
 		return 1
 	}
 	src := filepath.Join(filepath.Dir(exe), DefaultTemplatePromptFile)
 	if _, err := os.Stat(src); err != nil {
-		fmt.Fprintf(os.Stderr, "Missing template prompt file: %s\n", src)
+		fmt.Fprintf(os.Stderr, "Missing template prompt file: %s (error: %v). The executable may be corrupted or installed incorrectly.\n", src, err)
 		return 1
 	}
 	dst := filepath.Join(".", DefaultPromptFile)
 	if _, err := os.Stat(dst); err == nil {
-		fmt.Printf("%s already exists; refusing to overwrite\n", DefaultPromptFile)
+		fmt.Fprintf(os.Stderr, "%s already exists; refusing to overwrite. Remove it first if you want to create a new one.\n", DefaultPromptFile)
 		return 1
 	}
 	content, err := os.ReadFile(src)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read template: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to read template from %s: %v\n", src, err)
 		return 1
 	}
 	if err := os.WriteFile(dst, content, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to write: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to write %s: %v\n", dst, err)
 		return 1
 	}
 	fmt.Printf("Wrote %s\n", DefaultPromptFile)
@@ -1435,8 +1482,12 @@ func executeRunAction(c *cli.Context) error {
 		issuesFile := c.String("issues")
 		issues, err := loadIssuesFile(issuesFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to load issues: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to load issues file %s: %v\n", issuesFile, err)
 			os.Exit(1)
+		}
+		if len(issues.Issues) == 0 {
+			fmt.Fprintf(os.Stderr, "Issues file %s contains no issues to process.\n", issuesFile)
+			os.Exit(0)
 		}
 		runIssues(issues, promptPath, c.Bool("debug"), c.Bool("no-model"))
 		return nil
