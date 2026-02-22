@@ -8,7 +8,7 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
 - [x] Positional argument `routine` (optional): selects a named task override from config `routines`.
 - Options:
   - [x] `--prompt/-p`: path to prompt config file (default `prompt.yaml`).
-  - [ ] `--new`: copy bundled `default_prompt.yaml` to CWD as `prompt.yaml` (not implemented).
+  - [x] `--new`: copy bundled `default_prompt.yaml` to CWD as `prompt.yaml`.
   - [x] `--undo/-u`: undo last git commit via hard reset to `HEAD~1`.
   - [x] `--redo`: redo undo by hard reset to `ORIG_HEAD` if present.
   - [x] `--debug`: print the exact user-message prompt content immediately before sending.
@@ -29,7 +29,7 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
   - [x] `project` (optional): appended to `system_prompt`.
   - [x] `output_schema` (optional): overrides the JSON schema used for `response_format`.
   - [x] `language` (optional): override lexer selection for diff syntax highlighting.
-  - [ ] `model_prices_usd_per_1m` config override (uses built-in static map only).
+  - [x] `model_prices_usd_per_1m` config override (merges with built-in static map).
 
 ## Routine task resolution
 
@@ -141,10 +141,10 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
 - [x] If config key `build` is set:
   - [x] Runs the shell command via `/bin/sh -c <build>`.
   - [x] Streams stdout/stderr live to the terminal.
-  - [ ] Does not capture stdout/stderr for storage (no `build_stdout`/`build_stderr` written back).
+  - [x] Captures stdout/stderr and writes `build_stdout`/`build_stderr` back to prompt config.
   - [x] Writes `success: true` flag on exit code 0.
   - [x] Writes `error: "build failed (<code>)"` on non-zero exit.
-  - [ ] Does not remove existing `build_stdout`, `build_stderr`, `success`, `error` keys before rewriting.
+  - [x] Removes existing `build_stdout`, `build_stderr`, `success`, `error` keys before rewriting.
 
 ## Misc / defaults
 
