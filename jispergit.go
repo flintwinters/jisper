@@ -78,7 +78,8 @@ func undoLastCommit(baseDir string) int {
 	}
 	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
 	if code != 0 {
-		fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit). Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
+		fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit). ")
+		"Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
 		return 1
 	}
 	_, code = runCmd(repoRoot, "git", "reset", "--hard", "HEAD~1")
@@ -98,7 +99,7 @@ func redoLastCommit(baseDir string) int {
 	origPath := filepath.Join(repoRoot, ".git", "ORIG_HEAD")
 	if _, err := os.Stat(origPath); err != nil {
 		fmt.Fprintln(os.Stderr, "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.")
-fmt.Fprintln(os.Stderr, "Run 'git reflog' to find the commit you want to restore.")
+		fmt.Fprintln(os.Stderr, "Run 'git reflog' to find the commit you want to restore.")
 		return 1
 	}
 	out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
