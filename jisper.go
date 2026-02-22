@@ -985,7 +985,10 @@ func runBuildStep(config map[string]any, configPath string) *int {
 			code = 1
 		}
 	}
-	updatePromptConfigWithBuildResults(configPath, sanitizeOutput(outB.String()), sanitizeOutput(errB.String()), code)
+	updatePromptConfigWithBuildResults(configPath,
+		sanitizeOutput(outB.String()),
+		sanitizeOutput(errB.String()),
+		code)
 	return &code
 }
 
