@@ -75,87 +75,6 @@ var DefaultOutputSchema = map[string]any{
 	"required": []string{"edit"},
 }
 
-func toRel(base, target string) string {
-	r, _ := filepath.Rel(base, target)
-	return r
-}
-
-func dedupeKeepOrder(in []string) []string {
-	m := make(map[string]bool)
-	out := []string{}
-	for _, s := range in {
-		if !m[s] {
-			m[s] = true
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func flatMapStr(in []string, f func(string) []string) []string {
-	out := []string{}
-	for _, s := range in {
-		out = append(out, f(s)...)
-	}
-	return out
-}
-
-// duplicate functions removed(v any) (string, bool) {
-	s, ok := v.(string)
-	return strings.TrimSpace(s), ok && strings.TrimSpace(s) != ""
-}
-
-func asListOfNonEmptyStr(v any) []string {
-	raw, ok := v.([]any)
-	if !ok {
-		return []string{}
-	}
-	out := []string{}
-	for _, item := range raw {
-		if s, ok := asNonEmptyStr(item); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func readFileContent(baseDir, filename string) (string, bool) {
-	b, err := os.ReadFile(filepath.Join(baseDir, filename))
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
-func loadIssuesFile(path string) (IssuesFile, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return IssuesFile{}, err
-	}
-	var iss IssuesFile
-	if err := json.Unmarshal(b, &iss); err != nil {
-		return IssuesFile{}, err
-	}
-	return iss, nil
-}
-
-func extractLinesAround(filename string, line int, baseDir string, before, after int) (string, bool) {
-	content, ok := readFileContent(baseDir, filename)
-	if !ok {
-		return "", false
-	}
-	lines := strings.Split(content, "\n")
-	start := line - before - 1
-	if start < 0 {
-		start = 0
-	}
-	end := line + after
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[start:end], "\n"), true
-}
-
 func resolveOnePath(v string, baseDir string) []string {
 	s := strings.TrimSpace(v)
 	if s == "" {
@@ -172,7 +91,6 @@ func resolveOnePath(v string, baseDir string) []string {
 			}
 		}
 		sort.Strings(out)
-		fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath directory resolved to %d files\n", len(out))
 		return out
 	}
 	if err == nil && !st.IsDir() {
@@ -897,7 +815,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
+			fmt.Printf("\n\x1b[1m%s\x1b[0m\n", filename)
 			printNumberedCombinedDiff("", r.NewString, filename, language)
 			_ = os.WriteFile(targetPath, []byte(r.NewString), 0o644)
 			changed = append(changed, targetPath)
@@ -1101,14 +1019,6 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 		return
 	}
 	root := node.Content[0]
-	for _, k := range []string{"build_stdout", "build_stderr", "success", "error"} {
-		for i := 0; i < len(root.Content); i += 2 {
-			if i+1 < len(root.Content) && root.Content[i].Value == k {
-				root.Content = append(root.Content[:i], root.Content[i+2:]...)
-				break
-			}
-		}
-	}
 	idx := -1
 	for i := 0; i < len(root.Content); i += 2 {
 		if root.Content[i].Value == "build" {
@@ -1116,26 +1026,33 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 			break
 		}
 	}
-	add := func(k, v string) {
-		nk := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
-		nv := &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.LiteralStyle}
-		if idx >= 0 {
-			root.Content = append(root.Content[:idx], append([]*yaml.Node{nk, nv}, root.Content[idx:]...)...)
-			idx += 2
+	setOrAddKey := func(key, value string, insertAt *int) {
+		for i := 0; i < len(root.Content); i += 2 {
+			if root.Content[i].Value == key {
+				root.Content[i+1].Value = value
+				root.Content[i+1].Style = yaml.LiteralStyle
+				return
+			}
+		}
+		nk := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
+		nv := &yaml.Node{Kind: yaml.ScalarNode, Value: value, Style: yaml.LiteralStyle}
+		if *insertAt >= 0 {
+			root.Content = append(root.Content[:*insertAt], append([]*yaml.Node{nk, nv}, root.Content[*insertAt:]...)...)
+			*insertAt += 2
 		} else {
 			root.Content = append(root.Content, nk, nv)
 		}
 	}
 	if stdout != "" {
-		add("build_stdout", stdout)
+		setOrAddKey("build_stdout", stdout, &idx)
 	}
 	if stderr != "" {
-		add("build_stderr", stderr)
+		setOrAddKey("build_stderr", stderr, &idx)
 	}
 	if code == 0 {
-		add("success", "true")
+		setOrAddKey("success", "true", &idx)
 	} else {
-		add("error", fmt.Sprintf("build failed (%d)", code))
+		setOrAddKey("error", fmt.Sprintf("build failed (%d)", code), &idx)
 	}
 	out, _ := yaml.Marshal(&node)
 	_ = os.WriteFile(path, out, 0o644)

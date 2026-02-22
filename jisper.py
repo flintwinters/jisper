@@ -657,15 +657,6 @@ def run_build_step(config: dict, config_path: Path) -> int | None:
     with open(config_path, "r", encoding="utf-8") as f:
         existing_config = yaml_inst.load(f) or {}
 
-    if "build_stdout" in existing_config:
-        del existing_config["build_stdout"]
-    if "build_stderr" in existing_config:
-        del existing_config["build_stderr"]
-    if "success" in existing_config:
-        del existing_config["success"]
-    if "error" in existing_config:
-        del existing_config["error"]
-
     if stdout_str:
         existing_config["build_stdout"] = LiteralScalarString(stdout_str)
     if stderr_str:
