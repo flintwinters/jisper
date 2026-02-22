@@ -810,7 +810,7 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 	return out
 }
 
-func applyReplacements(repls []Replacement, baseDir string, language string) []string {
+func applyReplacements(repls []Replacement, baseDir string, language string, configPath string) []string {
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
@@ -842,6 +842,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 				oldPreview = oldPreview[:200] + "... (truncated, total length: " + fmt.Sprintf("%d", len(r.OldString)) + " chars)"
 			}
 			pterm.Warning.Printfln("old_string not found in %s; skipping replacement #%d. Searched for (first 200 chars): %q", filename, i, oldPreview)
+			writeFailedOldStringToConfig(configPath, r.OldString)
 			continue
 		}
 		if updated == original {
@@ -1194,6 +1195,32 @@ func callModel(endpointURL string, apiKey string, pl payload, config map[string]
 	return mr, usage, modelCode
 }
 
+func writeFailedOldStringToConfig(path string, oldString string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(b, &node); err != nil || len(node.Content) == 0 {
+		return
+	}
+	root := node.Content[0]
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == "old_string" {
+			root.Content[i+1].Value = oldString
+			root.Content[i+1].Style = yaml.LiteralStyle
+			out, _ := yaml.Marshal(&node)
+			_ = os.WriteFile(path, out, 0o644)
+			return
+		}
+	}
+	nk := &yaml.Node{Kind: yaml.ScalarNode, Value: "old_string"}
+	nv := &yaml.Node{Kind: yaml.ScalarNode, Value: oldString, Style: yaml.LiteralStyle}
+	root.Content = append(root.Content, nk, nv)
+	out, _ := yaml.Marshal(&node)
+	_ = os.WriteFile(path, out, 0o644)
+}
+
 func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	config, err := loadPromptFile(promptPath)
 	if err != nil {
@@ -1236,7 +1263,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		}
 		mr, usage, mc := callModel(endpointURL, apiKey, pl, config)
 		lang, _ := asNonEmptyStr(config["language"])
-		changed := applyReplacements(mr.Edit.Replacements, ".", lang)
+		changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
 		msg := strings.TrimSpace(mr.Edit.CommitMessage)
 		if msg == "" {
 			msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)
@@ -1385,7 +1412,7 @@ func executeRunAction(c *cli.Context) error {
 	}
 	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
 	lang, _ := asNonEmptyStr(config["language"])
-	changed := applyReplacements(mr.Edit.Replacements, ".", lang)
+	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
 	if msg == "" {
 		msg = "Apply model edits"
