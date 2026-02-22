@@ -835,7 +835,7 @@ func applyReplacements(repls []Replacement, baseDir string, language string) []s
 			pterm.Error.Printfln("Target file not found: %s (resolved to: %s). Cannot apply replacement #%d.", filename, targetPath, i)
 			continue
 		}
-		updated, matchedOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
+		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
 		if !applied {
 			oldPreview := r.OldString
 			if len(oldPreview) > 200 {
@@ -1219,7 +1219,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		os.Exit(1)
 	}
 	for i, issue := range issues.Issues {
-		pterm.Info.Printfln("Issue %d/%d: %s - %s", i+1, len(issues.Issues), issue.FromLinter, issue.Text)
+		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
 		if !ok {
 			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.", issue.Pos.Filename, issue.Pos.Line)
@@ -1257,6 +1257,7 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
 	cfg, pl, content, key, endpoint := prepareRun(path, routine)
+	modelCode := pl.Model
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
