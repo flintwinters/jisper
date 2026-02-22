@@ -1241,41 +1241,7 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	return config, pl, pContent, apiKey, endpointURL
 }
 
-func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
-	modelCode := getModelCode(config)
-	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
-	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
-	if err != nil {
-		spinner.Fail(err.Error())
-		os.Exit(1)
-	}
-	usage := extractUsageFromAPIResponse(apiJSON, headers)
-	mr, err := parseModelResponse(apiJSON)
-	if err != nil {
-		spinner.Fail(err.Error())
-		os.Exit(1)
-	}
-	spinner.Success()
-	return mr, usage, modelCode
-}
 
-func callModel(endpoint string, key string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
-	modelCode := getModelCode(config)
-	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
-	apiJSON, headers, err := callOpenAICompatible(endpoint, key, pl)
-	if err != nil {
-		spinner.Fail(err.Error())
-		os.Exit(1)
-	}
-	usage := extractUsageFromAPIResponse(apiJSON, headers)
-	mr, err := parseModelResponse(apiJSON)
-	if err != nil {
-		spinner.Fail(err.Error())
-		os.Exit(1)
-	}
-	spinner.Success()
-	return mr, usage, modelCode
-}
 
 func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
