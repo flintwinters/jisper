@@ -1028,7 +1028,9 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		if len(bodyPreview) > 500 {
 			bodyPreview = bodyPreview[:500] + "... (truncated)"
 		}
-		return nil, resp.Header, fmt.Errorf("failed to parse API response as JSON from %s. Parse error: %w. Response body: %s", endpointURL, err, bodyPreview)
+		return nil, resp.Header, fmt.Errorf(
+    "failed to parse API response as JSON from %s. Parse error: %w. Response body: %s",
+    endpointURL, err, bodyPreview) // split long fmt.Errorf line
 	}
 	return apiJSON, resp.Header, nil
 }
