@@ -136,6 +136,27 @@ type IncludedFiles struct {
 	SourceFiles          []string
 }
 
+type Pos struct {
+	Filename string `json:"Filename"`
+	Offset   int    `json:"Offset"`
+	Line     int    `json:"Line"`
+	Column   int    `json:"Column"`
+}
+
+type Issue struct {
+	FromLinter           string   `json:"FromLinter"`
+	Text                 string   `json:"Text"`
+	Severity             string   `json:"Severity"`
+	SourceLines          []string `json:"SourceLines"`
+	Pos                  Pos      `json:"Pos"`
+	ExpectNoLint         bool     `json:"ExpectNoLint"`
+	ExpectedNoLintLinter string   `json:"ExpectedNoLintLinter"`
+}
+
+type IssuesFile struct {
+	Issues []Issue `json:"Issues"`
+}
+
 type Usage struct {
 	PromptTokens     *int `json:"prompt_tokens"`
 	CompletionTokens *int `json:"completion_tokens"`
@@ -202,6 +223,33 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 		InputLevelFiles:      inputOut,
 		SourceFiles:          sourceFiles,
 	}
+}
+
+func loadIssuesFile(path string) (IssuesFile, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return IssuesFile{}, err
+	}
+	var f IssuesFile
+	err = json.Unmarshal(b, &f)
+	return f, err
+}
+
+func extractLinesAround(filename string, line int, baseDir string, contextBefore, contextAfter int) (string, bool) {
+	content, ok := readFileContent(baseDir, filename)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	start := line - 1 - contextBefore
+	if start < 0 {
+		start = 0
+	}
+	end := line + contextAfter
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n"), true
 }
 
 func loadPromptFile(path string) (map[string]any, error) {
