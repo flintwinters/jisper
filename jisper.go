@@ -842,9 +842,9 @@ func applyReplacements(repls []Replacement, baseDir string, language string, con
 				oldPreview = oldPreview[:200] + "... (truncated, total length: " + fmt.Sprintf("%d", len(r.OldString)) + " chars)"
 			}
 			pterm.Warning.Printfln(
-    "old_string not found in %s; skipping replacement #%d. Searched for (first 200 chars): %q",
-    filename, i, oldPreview,
-)
+				"old_string not found in %s; skipping replacement #%d. Searched for (first 200 chars): %q",
+				filename, i, oldPreview,
+			)
 			writeFailedOldStringToConfig(configPath, r.OldString)
 			continue
 		}
@@ -1029,8 +1029,8 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 			bodyPreview = bodyPreview[:500] + "... (truncated)"
 		}
 		return nil, resp.Header, fmt.Errorf(
-    "failed to parse API response as JSON from %s. Parse error: %w. Response body: %s",
-    endpointURL, err, bodyPreview) // split long fmt.Errorf line
+			"failed to parse API response as JSON from %s. Parse error: %w. Response body: %s",
+			endpointURL, err, bodyPreview) // split long fmt.Errorf line
 	}
 	return apiJSON, resp.Header, nil
 }
@@ -1062,9 +1062,9 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	contentAny, ok := msg["content"]
 	if !ok {
 		return ModelResponse{}, fmt.Errorf(
-    "API response choices[0].message missing 'content' field. Keys: %v",
-    getKeys(msg),
-)
+			"API response choices[0].message missing 'content' field. Keys: %v",
+			getKeys(msg),
+		)
 	}
 	content, ok := contentAny.(string)
 	if !ok {
@@ -1080,10 +1080,10 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 			contentPreview = contentPreview[:500] + "... (truncated)"
 		}
 		errMsg := fmt.Errorf(
-		"failed to parse model response content as JSON. Parse error: %w. Content: %s",
-		err, contentPreview,
-	)
-	return ModelResponse{}, errMsg
+			"failed to parse model response content as JSON. Parse error: %w. Content: %s",
+			err, contentPreview,
+		)
+		return ModelResponse{}, errMsg
 	}
 	return mr, nil
 }
@@ -1239,22 +1239,8 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", promptPath, err)
 		os.Exit(1)
 	}
-	endpointURL := DefaultURL
-	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
-		endpointURL = s
-	}
-	keyVar := DefaultAPIKeyEnvVar
-	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
-		keyVar = s
-	}
-	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
-		keyVar = "OPENROUTER_API_KEY"
-	}
-	apiKey := strings.TrimSpace(os.Getenv(keyVar))
-	if apiKey == "" {
-		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty. Set it with: export %s=your-api-key\n", keyVar, keyVar)
-		os.Exit(1)
-	}
+	endpointURL, keyVar := setupEndpointAndKey(config)
+	apiKey := validateAndGetAPIKey(keyVar)
 	modelCode := getModelCode(config)
 	fmt.Fprintf(os.Stderr, "DEBUG: modelCode=%q endpointURL=%q keyVar=%q\n", modelCode, endpointURL, keyVar)
 	for i, issue := range issues.Issues {
@@ -1363,8 +1349,8 @@ func writeDefaultPromptToCWD() int {
 	src := filepath.Join(filepath.Dir(exe), DefaultTemplatePromptFile)
 	if _, err := os.Stat(src); err != nil {
 		msg := "Missing template prompt file: %s (error: %v). " +
-    "The executable may be corrupted or installed incorrectly.\n"
-fmt.Fprintf(os.Stderr, msg, src, err)
+			"The executable may be corrupted or installed incorrectly.\n"
+		fmt.Fprintf(os.Stderr, msg, src, err)
 		return 1
 	}
 	dst := filepath.Join(".", DefaultPromptFile)
