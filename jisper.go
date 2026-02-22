@@ -77,7 +77,6 @@ var DefaultOutputSchema = map[string]any{
 
 func resolveOnePath(v string, baseDir string) []string {
 	s := strings.TrimSpace(v)
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath input='%s' baseDir='%s'\n", s, baseDir)
 	if s == "" {
 		return []string{}
 	}
@@ -96,7 +95,6 @@ func resolveOnePath(v string, baseDir string) []string {
 		return out
 	}
 	if err == nil && !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath single file resolved\n")
 		return []string{s}
 	}
 	matches, _ := filepath.Glob(p)
@@ -107,7 +105,6 @@ func resolveOnePath(v string, baseDir string) []string {
 		}
 	}
 	sort.Strings(out)
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveOnePath glob resolved to %d files\n", len(out))
 	return out
 }
 
@@ -174,15 +171,9 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	structRaw := asListOfNonEmptyStr(config["structural_level_files"])
 	inputRaw := asListOfNonEmptyStr(config["input_level_files"])
 
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles raw counts: full=%d struct=%d input=%d\n",
-		len(fullRaw), len(structRaw), len(inputRaw))
-
 	fullFiles := resolvePathsAndGlobs(fullRaw, baseDir)
 	structFiles := resolvePathsAndGlobs(structRaw, baseDir)
 	inputFiles := resolvePathsAndGlobs(inputRaw, baseDir)
-
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles resolved counts: full=%d struct=%d input=%d\n",
-		len(fullFiles), len(structFiles), len(inputFiles))
 
 	fullSet := map[string]bool{}
 	for _, f := range fullFiles {
@@ -206,8 +197,6 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 	}
 
 	sourceFiles := dedupeKeepOrder(append(append([]string{}, fullFiles...), append(structOut, inputOut...)...))
-	fmt.Fprintf(os.Stderr, "DEBUG: resolveIncludedFiles final counts: full=%d structOut=%d inputOut=%d sourceFiles=%d\n",
-		len(fullFiles), len(structOut), len(inputOut), len(sourceFiles))
 	return IncludedFiles{
 		FullFiles:            fullFiles,
 		StructuralLevelFiles: structOut,
@@ -218,13 +207,10 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
 
 func loadPromptFile(path string) (map[string]any, error) {
 	ext := strings.ToLower(filepath.Ext(path))
-	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile path='%s' ext='%s'\n", path, ext)
 	b, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile read error: %v\n", err)
 		return map[string]any{}, err
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile read %d bytes\n", len(b))
 	var cfg map[string]any
 	if ext == ".yaml" || ext == ".yml" {
 		err = yaml.Unmarshal(b, &cfg)
@@ -232,13 +218,11 @@ func loadPromptFile(path string) (map[string]any, error) {
 		err = json.Unmarshal(b, &cfg)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile parse error: %v\n", err)
 		return map[string]any{}, err
 	}
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile parsed %d top-level keys\n", len(cfg))
 	return cfg, nil
 }
 
@@ -386,19 +370,15 @@ type payload struct {
 }
 
 func buildPayload(promptConfig map[string]any, sourceText string, routineName string, _ string) (payload, string) {
-	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload sourceTextLen=%d routineName='%s'\n", len(sourceText), routineName)
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
 	}
 	systemPromptForCtx := resolveSystemPrompt(promptConfig)
-	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload systemPromptLen=%d\n", len(systemPromptForCtx))
 
 	userTask := resolveUserTask(promptConfig, routineName)
-	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload userTaskLen=%d\n", len(userTask))
 
 	modelCode := getModelCode(promptConfig)
-	fmt.Fprintf(os.Stderr, "DEBUG: buildPayload modelCode='%s'\n", modelCode)
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
 	renderedSystem := render(systemPromptForCtx, ctx)
 	renderedTask := render(userTask, ctx)
@@ -467,8 +447,6 @@ func extractUsageFromAPIResponse(apiJSON map[string]any, headers http.Header) Us
 }
 
 func applyOneReplacement(original string, oldString string, newString string) (string, string, bool) {
-	fmt.Fprintf(os.Stderr, "DEBUG: applyOneReplacement oldStringLen=%d newStringLen=%d originalLen=%d\n",
-		len(oldString), len(newString), len(original))
 	replaceIf := func(haystack string, needle string) (string, bool) {
 		if needle == "" {
 			return "", false
@@ -482,7 +460,6 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	updated, ok := replaceIf(original, oldString)
 	matchedOld := oldString
 	if ok {
-		fmt.Fprintf(os.Stderr, "DEBUG: exact match found\n")
 		return updated, matchedOld, true
 	}
 
@@ -497,14 +474,12 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	strippedOriginal := strings.TrimSpace(original)
 	trimmedOld = strings.TrimSpace(oldString)
 	if strippedOriginal != "" && trimmedOld != "" && strings.Contains(strippedOriginal, trimmedOld) {
-		fmt.Fprintf(os.Stderr, "DEBUG: fallback match in stripped content\n")
 		leading := original[:len(original)-len(strings.TrimLeft(original, " \t\n\r"))]
 		trailing := original[len(strings.TrimRight(original, " \t\n\r")):]
 		replacedCore := strings.ReplaceAll(strippedOriginal, trimmedOld, newString)
 		return leading + replacedCore + trailing, trimmedOld, true
 	}
 
-	fmt.Fprintf(os.Stderr, "DEBUG: no match found for replacement\n")
 	return "", matchedOld, false
 }
 
@@ -830,12 +805,9 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 }
 
 func applyReplacements(repls []Replacement, baseDir string, language string) []string {
-	fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements count=%d baseDir='%s' language='%s'\n", len(repls), baseDir, language)
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
-		fmt.Fprintf(os.Stderr, "DEBUG: applyReplacements [%d] filename='%s' oldLen=%d newLen=%d\n",
-			i, filename, len(r.OldString), len(r.NewString))
 		if filename == "" {
 			pterm.Error.Printfln("Replacement #%d missing filename; skipping", i)
 			continue
@@ -1113,10 +1085,8 @@ func runBuildStep(config map[string]any, configPath string) *int {
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: json.Marshal error: %v\n", err)
 		return nil, nil, err
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: request body size=%d bytes\n", len(b))
 	req, err := http.NewRequest("POST", endpointURL, bytes.NewReader(b))
 	if err != nil {
 		return nil, nil, err
@@ -1136,7 +1106,6 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		return nil, nil, err
 	}
 	if resp.StatusCode != 200 {
-		fmt.Fprintf(os.Stderr, "DEBUG: API error status=%d body=%s\n", resp.StatusCode, string(body))
 		return nil, resp.Header, fmt.Errorf("API error status=%d body=%s", resp.StatusCode, string(body))
 	}
 
@@ -1144,17 +1113,14 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 	dec.UseNumber()
 	var apiJSON map[string]any
 	if err := dec.Decode(&apiJSON); err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: JSON decode error: %v\n", err)
 		return nil, resp.Header, err
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: response keys: %v\n", keysOf(apiJSON))
 	return apiJSON, resp.Header, nil
 }
 
 func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	choicesAny, ok := apiJSON["choices"]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "DEBUG: missing choices in response, keys: %v\n", keysOf(apiJSON))
 		return ModelResponse{}, fmt.Errorf("missing choices")
 	}
 	choices, ok := choicesAny.([]any)
@@ -1182,12 +1148,10 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 		return ModelResponse{}, fmt.Errorf("invalid content")
 	}
 	content = stripJSONCodeFence(content)
-	fmt.Fprintf(os.Stderr, "DEBUG: content length=%d\n", len(content))
 	var mr ModelResponse
 	dec := json.NewDecoder(strings.NewReader(content))
 	dec.UseNumber()
 	if err := dec.Decode(&mr); err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: model response decode error: %v, content preview: %.200s\n", err, content)
 		return ModelResponse{}, err
 	}
 	return mr, nil
@@ -1196,11 +1160,9 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 func prepareRun(configPath string, routineName string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: loadPromptFile error: %v\n", err)
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: loaded config from %s, keys: %v\n", configPath, keysOf(config))
 	if strings.TrimSpace(routineName) != "" {
 		if _, ok := resolveRoutineTask(config, routineName); !ok {
 			routines, _ := config["routines"].(map[string]any)
@@ -1217,7 +1179,6 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: endpointURL=%s\n", endpointURL)
 	keyVar := DefaultAPIKeyEnvVar
 	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
 		keyVar = s
@@ -1226,7 +1187,6 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 		keyVar = "OPENROUTER_API_KEY"
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
-	fmt.Fprintf(os.Stderr, "DEBUG: keyVar=%s apiKeyPresent=%v\n", keyVar, apiKey != "")
 	sysCtx := resolveSystemPrompt(config)
 	userCtx := resolveUserTask(config, routineName)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
@@ -1283,22 +1243,15 @@ func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task s
 }
 
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
-	fmt.Fprintf(os.Stderr, "DEBUG: callModel endpointURL='%s' apiKeyPresent=%v\n", endpointURL, apiKey != "")
 	apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: callModel callOpenAICompatible error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: callModel apiJSON keys: %v\n", keysOf(apiJSON))
 	mr, err := parseModelResponse(apiJSON)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DEBUG: callModel parseModelResponse error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: callModel parsed ModelResponse with %d replacements\n", len(mr.Edit.Replacements))
 	usage := extractUsageFromAPIResponse(apiJSON, headers)
-	fmt.Fprintf(os.Stderr, "DEBUG: callModel usage prompt=%v completion=%v\n",
-		usage.PromptTokens, usage.CompletionTokens)
 	modelCode := getModelCode(config)
 	return mr, usage, modelCode
 }
@@ -1461,10 +1414,8 @@ func handleGlobalFlags(c *cli.Context) bool {
 }
 
 func executeRunAction(c *cli.Context) error {
-	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction invoked\n")
 	handleGlobalFlags(c)
 	promptPath := c.String("prompt")
-	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction promptPath='%s' NArg=%d\n", promptPath, c.NArg())
 	if c.IsSet("issues") {
 		issuesFile := c.String("issues")
 		issues, err := loadIssuesFile(issuesFile)
@@ -1509,7 +1460,6 @@ func executeRunAction(c *cli.Context) error {
 }
 
 func main() {
-	fmt.Fprintf(os.Stderr, "DEBUG: main starting args=%v\n", os.Args)
 	app := &cli.App{
 		Name: "jisper", Usage: "CLI for Jisper",
 		Flags: []cli.Flag{
@@ -1524,5 +1474,4 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: main completed successfully\n")
 }
