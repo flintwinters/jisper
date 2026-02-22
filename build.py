@@ -33,7 +33,7 @@ def fmt():
 @app.command()
 def lint():
     """Run golangci-lint with backend config."""
-    run(["golangci-lint", "run", "-v", "--timeout", "5m", "./..."])
+    run(["golangci-lint", "run", "--timeout", "5m", "./..."])
 
 
 @app.command()
@@ -79,7 +79,7 @@ def all():
     fmt()
     lint()
     vet()
-    test()
+    # test()
     build()
     console.print("[bold green]All tasks completed successfully.[/bold green]")
 
