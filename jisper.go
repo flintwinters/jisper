@@ -1134,7 +1134,11 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	}
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
 	if apiKey == "" {
-		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty. Set it with: export %s=your-api-key\n", keyVar, keyVar)
+		errMsg := fmt.Sprintf(
+			"API key not found: environment variable %s is not set or empty. "+
+				"Set it with: export %s=your-api-key",
+			keyVar, keyVar)
+		fmt.Fprintf(os.Stderr, "%s\n", errMsg)
 		os.Exit(1)
 	}
 	sysCtx := resolveSystemPrompt(config)
