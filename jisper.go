@@ -1105,7 +1105,6 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 			os.Exit(2)
 		}
 	}
-	modelCode := getModelCode(config)
 	endpointURL := DefaultURL
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
@@ -1201,7 +1200,6 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", promptPath, err)
 		os.Exit(1)
 	}
-	modelCode := getModelCode(config)
 	endpointURL := DefaultURL
 	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
 		endpointURL = s
@@ -1257,7 +1255,6 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
 	cfg, pl, content, key, endpoint := prepareRun(path, routine)
-	modelCode := pl.Model
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
