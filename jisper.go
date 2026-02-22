@@ -1297,7 +1297,8 @@ func callModel(endpointURL string, apiKey string, pl payload, config map[string]
 	}
 	fmt.Fprintf(os.Stderr, "DEBUG: callModel parsed ModelResponse with %d replacements\n", len(mr.Edit.Replacements))
 	usage := extractUsageFromAPIResponse(apiJSON, headers)
-	fmt.Fprintf(os.Stderr, "DEBUG: callModel usage promptTokens=%v completionTokens=%v\n", usage.PromptTokens, usage.CompletionTokens)
+	fmt.Fprintf(os.Stderr, "DEBUG: callModel usage prompt=%v completion=%v\n",
+		usage.PromptTokens, usage.CompletionTokens)
 	modelCode := getModelCode(config)
 	return mr, usage, modelCode
 }
