@@ -1243,6 +1243,8 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty. Set it with: export %s=your-api-key\n", keyVar, keyVar)
 		os.Exit(1)
 	}
+	modelCode := getModelCode(config)
+	fmt.Fprintf(os.Stderr, "DEBUG: modelCode=%q endpointURL=%q keyVar=%q\n", modelCode, endpointURL, keyVar)
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
