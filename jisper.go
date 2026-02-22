@@ -1254,7 +1254,8 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
 		if !ok {
-			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.", issue.Pos.Filename, issue.Pos.Line)
+			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
+			issue.Pos.Filename, issue.Pos.Line)
 			continue
 		}
 		task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
