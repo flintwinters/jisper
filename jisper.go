@@ -393,6 +393,8 @@ func buildPayload(promptConfig map[string]any, sourceText string, routineName st
 
 	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
 		renderedSystem, renderedTask, sourceText)
+	pl := payload{
+		Model: modelCode,
 		Messages: []message{
 			{Role: "system", Content: systemInstruction},
 			{Role: "user", Content: promptContent},
