@@ -1241,8 +1241,6 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	return config, pl, pContent, apiKey, endpointURL
 }
 
-
-
 func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
@@ -1282,6 +1280,26 @@ func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task s
 		}
 	}
 	return pl, promptContent
+}
+
+func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
+	fmt.Fprintf(os.Stderr, "DEBUG: callModel endpointURL='%s' apiKeyPresent=%v\n", endpointURL, apiKey != "")
+	apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: callModel callOpenAICompatible error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "DEBUG: callModel apiJSON keys: %v\n", keysOf(apiJSON))
+	mr, err := parseModelResponse(apiJSON)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: callModel parseModelResponse error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "DEBUG: callModel parsed ModelResponse with %d replacements\n", len(mr.Edit.Replacements))
+	usage := extractUsageFromAPIResponse(apiJSON, headers)
+	fmt.Fprintf(os.Stderr, "DEBUG: callModel usage promptTokens=%v completionTokens=%v\n", usage.PromptTokens, usage.CompletionTokens)
+	modelCode := getModelCode(config)
+	return mr, usage, modelCode
 }
 
 func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
@@ -1444,6 +1462,8 @@ func handleGlobalFlags(c *cli.Context) bool {
 func executeRunAction(c *cli.Context) error {
 	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction invoked\n")
 	handleGlobalFlags(c)
+	promptPath := c.String("prompt")
+	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction promptPath='%s' NArg=%d\n", promptPath, c.NArg())
 	if c.IsSet("issues") {
 		issuesFile := c.String("issues")
 		issues, err := loadIssuesFile(issuesFile)
@@ -1454,8 +1474,6 @@ func executeRunAction(c *cli.Context) error {
 		runIssues(issues, promptPath, c.Bool("debug"), c.Bool("no-model"))
 		return nil
 	}
-	promptPath := c.String("prompt")
-	fmt.Fprintf(os.Stderr, "DEBUG: executeRunAction promptPath='%s' NArg=%d\n", promptPath, c.NArg())
 	if !c.IsSet("prompt") && c.NArg() > 0 {
 		if _, err := os.Stat(c.Args().Get(0)); err == nil {
 			promptPath = c.Args().Get(0)
