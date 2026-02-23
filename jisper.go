@@ -1305,7 +1305,12 @@ func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promp
 func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	config, err := loadPromptFile(promptPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", promptPath, err)
+		fmt.Fprintf(
+    os.Stderr,
+    "Failed to load config from %s: %v\n",
+    promptPath,
+    err,
+)
 		os.Exit(1)
 	}
 	endpointURL := DefaultURL
@@ -1329,13 +1334,22 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	var totalCost float64
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln(
-		"Processing issue %d/%d (model: %s)",
-		i+1,
-		len(issues.Issues),
-		modelCode,
-	)
+			"Processing issue %d/%d (model: %s)",
+			i+1,
+			len(issues.Issues),
+			modelCode,
+		)
 
-		totalCost += processIssue(issue, config, endpointURL, apiKey, promptPath, debug, noModel, lang)
+		totalCost += processIssue(
+    issue,
+    config,
+    endpointURL,
+    apiKey,
+    promptPath,
+    debug,
+    noModel,
+    lang,
+)
 	}
 	if totalCost > 0 {
 		pterm.Info.Printfln("Total spent: $%.4f", totalCost)
