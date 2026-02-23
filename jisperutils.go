@@ -46,7 +46,7 @@ func ResolveEndpointAndAPIKey(config map[string]any) (string, string) {
 	return endpointURL, keyVar
 }
 
-func GetAPIKey(endpointURL, keyVar string) string {
+func GetAPIKey(_ string, keyVar string) string {
 	apiKey := strings.TrimSpace(os.Getenv(keyVar))
 	if apiKey == "" {
 		errMsg := fmt.Sprintf(
