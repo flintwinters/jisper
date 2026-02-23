@@ -1059,16 +1059,16 @@ func callOpenAICompatibleWithRetry(endpointURL string, apiKey string, pl payload
 }
 
 type retryableError struct {
-	statusCode int
-	retryAfter int
-	message    string
+	statusCode       int
+	retryAfterSeconds int
+	message          string
 }
 
-func (e retryableError) Error() string   { return e.message }
+func (e retryableError) Error() string { return e.message }
 func (e retryableError) shouldRetry() bool {
 	return e.statusCode == 429 || e.statusCode >= 500
 }
-func (e retryableError) retryAfter() int { return e.retryAfter }
+func (e retryableError) retryAfter() int { return e.retryAfterSeconds }
 
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
@@ -1109,7 +1109,7 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		errMsg := fmt.Sprintf(
 			"API request to %s returned status %d. Response body: %s",
 			endpointURL, resp.StatusCode, bodyPreview)
-		return nil, resp.Header, retryableError{statusCode: resp.StatusCode, retryAfter: retryAfter, message: errMsg}
+		return nil, resp.Header, retryableError{statusCode: resp.StatusCode, retryAfterSeconds: retryAfter, message: errMsg}
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
