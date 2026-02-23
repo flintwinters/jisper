@@ -244,52 +244,6 @@ func coerceFloat(v any) (float64, bool) {
 	}
 }
 
-type Usage struct {
-	PromptTokens     *int `json:"prompt_tokens"`
-	CompletionTokens *int `json:"completion_tokens"`
-	TotalTokens      *int `json:"total_tokens"`
-}
-
-type Prices struct {
-	InUSDPer1M  float64
-	OutUSDPer1M float64
-}
-
-var ModelPricesUSDPer1M = map[string]Prices{
-	"gpt-5.2":                   {InUSDPer1M: 5.0, OutUSDPer1M: 15.0},
-	"gpt-5-mini":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.0},
-	"qwen/qwen3-coder:exacto":   {InUSDPer1M: 0.22, OutUSDPer1M: 1.8},
-	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
-	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
-	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
-	"minimax/minimax-m2.5":      {InUSDPer1M: 0.30, OutUSDPer1M: 1.10},
-}
-
-const (
-	DefaultFallbackInputUSDPer1M  = 5.0
-	DefaultFallbackOutputUSDPer1M = 15.0
-)
-
-func EstimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *float64 {
-	pt := 0
-	ct := 0
-	if usage.PromptTokens != nil {
-		pt = *usage.PromptTokens
-	}
-	if usage.CompletionTokens != nil {
-		ct = *usage.CompletionTokens
-	}
-	if pt == 0 && ct == 0 {
-		return nil
-	}
-	p, ok := prices[modelCode]
-	if !ok {
-		p = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
-	}
-	cost := (float64(pt)*p.InUSDPer1M + float64(ct)*p.OutUSDPer1M) / 1_000_000.0
-	return &cost
-}
-
 func GetModelPrices(config map[string]any) map[string]Prices {
 	prices := make(map[string]Prices)
 	for k, v := range ModelPricesUSDPer1M {

@@ -146,15 +146,20 @@ type Pos struct {
 	Column   int    `json:"Column"`
 }
 
+type Issue struct {
+	Pos        Pos    `json:"Pos"`
+	Text       string `json:"Text"`
+	FromLinter string `json:"FromLinter"`
+}
+
+type IssuesFile struct {
+	Issues []Issue `json:"Issues"`
+}
+
 type Usage struct {
 	PromptTokens     *int `json:"prompt_tokens"`
 	CompletionTokens *int `json:"completion_tokens"`
 	TotalTokens      *int `json:"total_tokens"`
-}
-
-type Prices struct {
-	InUSDPer1M  float64
-	OutUSDPer1M float64
 }
 
 type Prices struct {
@@ -170,6 +175,19 @@ var ModelPricesUSDPer1M = map[string]Prices{
 	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
 	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
 	"minimax/minimax-m2.5":      {InUSDPer1M: 0.30, OutUSDPer1M: 1.10},
+}
+
+func responseFormatFromConfig(config map[string]any) map[string]any {
+	if custom, ok := config["output_schema"].(map[string]any); ok {
+		return map[string]any{
+			"type":        "json_schema",
+			"json_schema": map[string]any{"strict": true, "schema": custom},
+		}
+	}
+	return map[string]any{
+		"type":        "json_schema",
+		"json_schema": map[string]any{"strict": true, "schema": DefaultOutputSchema},
+	}
 }
 
 func getModelCode(config map[string]any) string {
@@ -1286,6 +1304,39 @@ func writeFailedOldStringToConfig(path string, oldString string) {
 	root.Content = append(root.Content, nk, nv)
 	out, _ := yaml.Marshal(&node)
 	_ = os.WriteFile(path, out, 0o644)
+}
+
+func loadIssuesFile(path string) (IssuesFile, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return IssuesFile{}, fmt.Errorf("failed to read issues file %s: %w", path, err)
+	}
+	var issues IssuesFile
+	if err := json.Unmarshal(b, &issues); err != nil {
+		return IssuesFile{}, fmt.Errorf("failed to parse issues file %s: %w", path, err)
+	}
+	return issues, nil
+}
+
+func extractLinesAround(filename string, lineNum int, baseDir string, before, after int) (string, bool) {
+	content, ok := readFileContent(baseDir, filename)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	start := lineNum - 1 - before
+	if start < 0 {
+		start = 0
+	}
+	end := lineNum + after
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var out []string
+	for i := start; i < end; i++ {
+		out = append(out, lines[i])
+	}
+	return strings.Join(out, "\n"), true
 }
 
 func getIssueContextAndTask(issue Issue, baseDir string) (string, string, bool) {
