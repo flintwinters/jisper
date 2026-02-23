@@ -31,12 +31,32 @@ func GetExtLexerMapping() map[string]string {
 	}
 }
 
-func keysOf(m map[string]any) []string {
-	res := make([]string, 0, len(m))
-	for k := range m {
-		res = append(res, k)
+func ResolveEndpointAndAPIKey(config map[string]any) (string, string) {
+	endpointURL := DefaultURL
+	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
+		endpointURL = s
 	}
-	return res
+	keyVar := DefaultAPIKeyEnvVar
+	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
+		keyVar = s
+	}
+	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
+		keyVar = "OPENROUTER_API_KEY"
+	}
+	return endpointURL, keyVar
+}
+
+func GetAPIKey(endpointURL, keyVar string) string {
+	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	if apiKey == "" {
+		errMsg := fmt.Sprintf(
+			"API key not found: environment variable %s is not set or empty. "+
+				"Set it with: export %s=your-api-key",
+			keyVar, keyVar)
+		fmt.Fprintf(os.Stderr, "%s\n", errMsg)
+		os.Exit(1)
+	}
+	return apiKey
 }
 
 func asNonEmptyStr(v any) (string, bool) {

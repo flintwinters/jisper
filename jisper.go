@@ -1130,26 +1130,8 @@ func prepareRun(configPath string, routineName string, cliTask string) (map[stri
 			os.Exit(2)
 		}
 	}
-	endpointURL := DefaultURL
-	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
-		endpointURL = s
-	}
-	keyVar := DefaultAPIKeyEnvVar
-	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
-		keyVar = s
-	}
-	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
-		keyVar = "OPENROUTER_API_KEY"
-	}
-	apiKey := strings.TrimSpace(os.Getenv(keyVar))
-	if apiKey == "" {
-		errMsg := fmt.Sprintf(
-			"API key not found: environment variable %s is not set or empty. "+
-				"Set it with: export %s=your-api-key",
-			keyVar, keyVar)
-		fmt.Fprintf(os.Stderr, "%s\n", errMsg)
-		os.Exit(1)
-	}
+	endpointURL, keyVar := ResolveEndpointAndAPIKey(config)
+	apiKey := GetAPIKey(endpointURL, keyVar)
 	sysCtx := resolveSystemPrompt(config)
 	userCtx := resolveUserTask(config, routineName)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
@@ -1306,29 +1288,15 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	config, err := loadPromptFile(promptPath)
 	if err != nil {
 		fmt.Fprintf(
-    os.Stderr,
-    "Failed to load config from %s: %v\n",
-    promptPath,
-    err,
-)
+			os.Stderr,
+			"Failed to load config from %s: %v\n",
+			promptPath,
+			err,
+		)
 		os.Exit(1)
 	}
-	endpointURL := DefaultURL
-	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
-		endpointURL = s
-	}
-	keyVar := DefaultAPIKeyEnvVar
-	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
-		keyVar = s
-	}
-	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
-		keyVar = "OPENROUTER_API_KEY"
-	}
-	apiKey := strings.TrimSpace(os.Getenv(keyVar))
-	if apiKey == "" {
-		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty.\n", keyVar)
-		os.Exit(1)
-	}
+	endpointURL, keyVar := ResolveEndpointAndAPIKey(config)
+	apiKey := GetAPIKey(endpointURL, keyVar)
 	modelCode := getModelCode(config)
 	lang, _ := asNonEmptyStr(config["language"])
 	var totalCost float64
@@ -1341,15 +1309,15 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		)
 
 		totalCost += processIssue(
-    issue,
-    config,
-    endpointURL,
-    apiKey,
-    promptPath,
-    debug,
-    noModel,
-    lang,
-)
+			issue,
+			config,
+			endpointURL,
+			apiKey,
+			promptPath,
+			debug,
+			noModel,
+			lang,
+		)
 	}
 	if totalCost > 0 {
 		pterm.Info.Printfln("Total spent: $%.4f", totalCost)
