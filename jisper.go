@@ -1246,17 +1246,30 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", promptPath, err)
 		os.Exit(1)
 	}
-	endpointURL, keyVar := setupEndpointAndKey(config)
-	apiKey := validateAndGetAPIKey(keyVar)
+	endpointURL := DefaultURL
+	if s, ok := asNonEmptyStr(config["endpoint"]); ok {
+		endpointURL = s
+	}
+	keyVar := DefaultAPIKeyEnvVar
+	if s, ok := asNonEmptyStr(config["api_key_env_var"]); ok {
+		keyVar = s
+	}
+	if strings.Contains(endpointURL, "openrouter.ai") && keyVar == DefaultAPIKeyEnvVar {
+		keyVar = "OPENROUTER_API_KEY"
+	}
+	apiKey := strings.TrimSpace(os.Getenv(keyVar))
+	if apiKey == "" {
+		fmt.Fprintf(os.Stderr, "API key not found: environment variable %s is not set or empty.\n", keyVar)
+		os.Exit(1)
+	}
 	modelCode := getModelCode(config)
-	fmt.Fprintf(os.Stderr, "DEBUG: modelCode=%q endpointURL=%q keyVar=%q\n", modelCode, endpointURL, keyVar)
 	var totalCost float64
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
 		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
 		if !ok {
 			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
-			issue.Pos.Filename, issue.Pos.Line)
+				issue.Pos.Filename, issue.Pos.Line)
 			continue
 		}
 		task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
