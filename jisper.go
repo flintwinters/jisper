@@ -1065,7 +1065,10 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	}
 	msg, ok := msgAny.(map[string]any)
 	if !ok {
-		return ModelResponse{}, fmt.Errorf("API response choices[0].message is not an object, got %T", msgAny)
+		return ModelResponse{}, fmt.Errorf(
+			"API response choices[0].message is not an object, got %T",
+			msgAny,
+		)
 	}
 	contentAny, ok := msg["content"]
 	if !ok {
