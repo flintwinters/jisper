@@ -60,7 +60,8 @@ func stageAndCommit(repoRoot string, changedFiles []string, message string) {
 func requireValidRepo(baseDir string) (string, bool) {
 	repoRoot, ok := repoFromDir(baseDir)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "Not a git repository. Run 'git init' to create one, or navigate to a directory inside a git repository.")
+		fmt.Fprintln(os.Stderr,
+			"Not a git repository. Run 'git init' to create one, or navigate to a directory inside a git repository.")
 		return "", false
 	}
 	_, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD")
@@ -98,7 +99,8 @@ func redoLastCommit(baseDir string) int {
 	}
 	origPath := filepath.Join(repoRoot, ".git", "ORIG_HEAD")
 	if _, err := os.Stat(origPath); err != nil {
-		fmt.Fprintln(os.Stderr, "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.")
+		fmt.Fprintln(os.Stderr,
+			"Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.")
 		fmt.Fprintln(os.Stderr, "Run 'git reflog' to find the commit you want to restore.")
 		return 1
 	}

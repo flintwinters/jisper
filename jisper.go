@@ -832,7 +832,9 @@ func applyReplacements(repls []Replacement, baseDir string, language string, con
 			continue
 		}
 		if !ok {
-			pterm.Error.Printfln("Target file not found: %s (resolved to: %s). Cannot apply replacement #%d.", filename, targetPath, i)
+			pterm.Error.Printfln(
+				"Target file not found: %s (resolved to: %s). Cannot apply replacement #%d.",
+				filename, targetPath, i)
 			continue
 		}
 		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
@@ -849,7 +851,9 @@ func applyReplacements(repls []Replacement, baseDir string, language string, con
 			continue
 		}
 		if updated == original {
-			pterm.Info.Printfln("No changes applied to %s (old_string matched but replacement produced identical content)", filename)
+			pterm.Info.Printfln(
+				"No changes applied to %s (old_string matched but replacement produced identical content)",
+				filename)
 			continue
 		}
 		fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
@@ -967,10 +971,10 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 	_ = os.WriteFile(path, out, 0o644)
 }
 
-func runBuildStep(config map[string]any, configPath string) *int {
+func runBuildStep(config map[string]any, configPath string) {
 	cmdStr, ok := asNonEmptyStr(config["build"])
 	if !ok {
-		return nil
+		return
 	}
 	fmt.Printf("\nBuild: %s\n\n", cmdStr)
 	cmd := exec.Command("/bin/sh", "-c", cmdStr)
@@ -989,7 +993,6 @@ func runBuildStep(config map[string]any, configPath string) *int {
 		sanitizeOutput(outB.String()),
 		sanitizeOutput(errB.String()),
 		code)
-	return &code
 }
 
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
@@ -1020,7 +1023,10 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		if len(bodyPreview) > 1000 {
 			bodyPreview = bodyPreview[:1000] + "... (truncated)"
 		}
-		return nil, resp.Header, fmt.Errorf("API request to %s returned status %d. Response body: %s", endpointURL, resp.StatusCode, bodyPreview)
+		errMsg := fmt.Sprintf(
+			"API request to %s returned status %d. Response body: %s",
+			endpointURL, resp.StatusCode, bodyPreview)
+		return nil, resp.Header, fmt.Errorf("%s", errMsg)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -1114,9 +1120,13 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 			}
 			sort.Strings(available)
 			if len(available) == 0 {
-				fmt.Fprintf(os.Stderr, "Routine not found: %s. No routines are defined in the config file.\n", routineName)
+				fmt.Fprintf(os.Stderr,
+					"Routine not found: %s. No routines are defined in the config file.\n",
+					routineName)
 			} else {
-				fmt.Fprintf(os.Stderr, "Routine not found: %s. Available routines: %s\n", routineName, strings.Join(available, ", "))
+				fmt.Fprintf(os.Stderr,
+					"Routine not found: %s. Available routines: %s\n",
+					routineName, strings.Join(available, ", "))
 			}
 			os.Exit(2)
 		}
@@ -1240,6 +1250,52 @@ func writeFailedOldStringToConfig(path string, oldString string) {
 	_ = os.WriteFile(path, out, 0o644)
 }
 
+func getIssueContextAndTask(issue Issue, baseDir string) (string, string, bool) {
+	context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, baseDir, 40, 40)
+	if !ok {
+		return "", "", false
+	}
+	task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
+		issue.Pos.Filename, issue.Pos.Line, issue.FromLinter, issue.Text, context)
+	return context, task, true
+}
+
+func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promptPath string, debug, noModel bool, lang string) float64 {
+	context, task, ok := getIssueContextAndTask(issue, ".")
+	if !ok {
+		pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
+			issue.Pos.Filename, issue.Pos.Line)
+		return 0
+	}
+	pl, content := buildPayloadWithTask(config, context, task)
+	if debug {
+		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
+	}
+	if noModel {
+		enc, _ := json.MarshalIndent(pl, "", "  ")
+		fmt.Println(string(enc))
+		return 0
+	}
+	mr, usage, mc := callModel(endpointURL, apiKey, pl, config)
+	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
+	msg := strings.TrimSpace(mr.Edit.CommitMessage)
+	if msg == "" {
+		msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)
+	}
+	pterm.Info.Printfln("Commit: %s", msg)
+	prices := getModelPrices(config)
+	var cost float64
+	if c := estimateCostUSD(mc, usage, prices); c != nil {
+		pterm.Success.Printfln("$%.4f", *c)
+		cost = *c
+	}
+	repo := initRepoIfMissing(".")
+	if len(changed) > 0 {
+		stageAndCommit(repo, changed, msg)
+	}
+	return cost
+}
+
 func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	config, err := loadPromptFile(promptPath)
 	if err != nil {
@@ -1263,48 +1319,16 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		os.Exit(1)
 	}
 	modelCode := getModelCode(config)
+	lang, _ := asNonEmptyStr(config["language"])
 	var totalCost float64
 	for i, issue := range issues.Issues {
 		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
-		context, ok := extractLinesAround(issue.Pos.Filename, issue.Pos.Line, ".", 40, 40)
-		if !ok {
-			pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
-				issue.Pos.Filename, issue.Pos.Line)
-			continue
-		}
-		task := fmt.Sprintf("Fix this linting issue in %s at line %d.\n\nLinter: %s\nMessage: %s\n\nCode:\n%s",
-			issue.Pos.Filename, issue.Pos.Line, issue.FromLinter, issue.Text, context)
-		pl, content := buildPayloadWithTask(config, context, task)
-		if debug {
-			fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
-		}
-		if noModel {
-			enc, _ := json.MarshalIndent(pl, "", "  ")
-			fmt.Println(string(enc))
-			continue
-		}
-		mr, usage, mc := callModel(endpointURL, apiKey, pl, config)
-		lang, _ := asNonEmptyStr(config["language"])
-		changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
-		msg := strings.TrimSpace(mr.Edit.CommitMessage)
-		if msg == "" {
-			msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)
-		}
-		pterm.Info.Printfln("Commit: %s", msg)
-		prices := getModelPrices(config)
-		if cost := estimateCostUSD(mc, usage, prices); cost != nil {
-			pterm.Success.Printfln("$%.4f", *cost)
-			totalCost += *cost
-		}
-		repo := initRepoIfMissing(".")
-		if len(changed) > 0 {
-			stageAndCommit(repo, changed, msg)
-		}
+		totalCost += processIssue(issue, config, endpointURL, apiKey, promptPath, debug, noModel, lang)
 	}
 	if totalCost > 0 {
 		pterm.Info.Printfln("Total spent: $%.4f", totalCost)
 	}
-	_ = runBuildStep(config, promptPath)
+	runBuildStep(config, promptPath)
 }
 
 func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
@@ -1382,7 +1406,9 @@ func writeDefaultPromptToCWD() int {
 	}
 	dst := filepath.Join(".", DefaultPromptFile)
 	if _, err := os.Stat(dst); err == nil {
-		fmt.Fprintf(os.Stderr, "%s already exists; refusing to overwrite. Remove it first if you want to create a new one.\n", DefaultPromptFile)
+		fmt.Fprintf(os.Stderr,
+			"%s already exists; refusing to overwrite. Remove it first if you want to create a new one.\n",
+			DefaultPromptFile)
 		return 1
 	}
 	content, err := os.ReadFile(src)
@@ -1458,7 +1484,7 @@ func executeRunAction(c *cli.Context) error {
 		return nil
 	}
 	stageAndCommit(repo, changed, msg)
-	_ = runBuildStep(config, promptPath)
+	runBuildStep(config, promptPath)
 	return nil
 }
 
