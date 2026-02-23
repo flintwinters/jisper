@@ -1260,7 +1260,8 @@ func getIssueContextAndTask(issue Issue, baseDir string) (string, string, bool) 
 	return context, task, true
 }
 
-func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promptPath string, debug, noModel bool, lang string) float64 {
+func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promptPath string,
+	debug, noModel bool, lang string) float64 {
 	context, task, ok := getIssueContextAndTask(issue, ".")
 	if !ok {
 		pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
