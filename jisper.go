@@ -1328,7 +1328,13 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	lang, _ := asNonEmptyStr(config["language"])
 	var totalCost float64
 	for i, issue := range issues.Issues {
-		pterm.Info.Printfln("Processing issue %d/%d (model: %s)", i+1, len(issues.Issues), modelCode)
+		pterm.Info.Printfln(
+		"Processing issue %d/%d (model: %s)",
+		i+1,
+		len(issues.Issues),
+		modelCode,
+	)
+
 		totalCost += processIssue(issue, config, endpointURL, apiKey, promptPath, debug, noModel, lang)
 	}
 	if totalCost > 0 {
