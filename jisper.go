@@ -998,7 +998,12 @@ func runBuildStep(config map[string]any, configPath string) {
 		code)
 }
 
-func callOpenAICompatibleWithRetry(endpointURL string, apiKey string, pl payload, config map[string]any) (map[string]any, http.Header, error) {
+func callOpenAICompatibleWithRetry(
+	endpointURL string,
+	apiKey string,
+	pl payload,
+	config map[string]any,
+) (map[string]any, http.Header, error) {
 	maxRetries := DefaultMaxRetries
 	if r, ok := config["max_retries"].(float64); ok {
 		maxRetries = int(r)
@@ -1059,9 +1064,9 @@ func callOpenAICompatibleWithRetry(endpointURL string, apiKey string, pl payload
 }
 
 type retryableError struct {
-	statusCode       int
+	statusCode        int
 	retryAfterSeconds int
-	message          string
+	message           string
 }
 
 func (e retryableError) Error() string { return e.message }
