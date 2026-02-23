@@ -157,6 +157,11 @@ type Prices struct {
 	OutUSDPer1M float64
 }
 
+type Prices struct {
+	InUSDPer1M  float64
+	OutUSDPer1M float64
+}
+
 var ModelPricesUSDPer1M = map[string]Prices{
 	"gpt-5.2":                   {InUSDPer1M: 5.0, OutUSDPer1M: 15.0},
 	"gpt-5-mini":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.0},
@@ -380,14 +385,17 @@ type payload struct {
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
 }
 
-func buildPayload(promptConfig map[string]any, sourceText string, routine string, _ string) (payload, string) {
+func buildPayload(promptConfig map[string]any, sourceText string, routine string, taskOverride string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
 	}
 	systemPromptForCtx := resolveSystemPrompt(promptConfig)
 
-	userTask := resolveUserTask(promptConfig, routine)
+	userTask := taskOverride
+	if userTask == "" {
+		userTask = resolveUserTask(promptConfig, routine)
+	}
 	modelCode := getModelCode(promptConfig)
 
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
@@ -404,26 +412,7 @@ func buildPayload(promptConfig map[string]any, sourceText string, routine string
 		},
 	}
 
-	if schema, ok := promptConfig["output_schema"]; ok && schema != nil {
-		pl.ResponseFormat = map[string]any{
-			"type": "json_schema",
-			"json_schema": map[string]any{
-				"name":   "response_schema",
-				"strict": true,
-				"schema": schema,
-			},
-		}
-	} else {
-		pl.ResponseFormat = map[string]any{
-			"type": "json_schema",
-			"json_schema": map[string]any{
-				"name":   "response_schema",
-				"strict": true,
-				"schema": DefaultOutputSchema,
-			},
-		}
-	}
-
+	pl.ResponseFormat = responseFormatFromConfig(promptConfig)
 	return pl, promptContent
 }
 
@@ -1252,44 +1241,7 @@ func prepareRun(configPath string, routine string, task string) (map[string]any,
 }
 
 func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string) (payload, string) {
-	systemInstruction := "You are a helpful assistant."
-	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
-		systemInstruction = s
-	}
-	systemPromptForCtx := resolveSystemPrompt(promptConfig)
-	ctx := buildJinjaContext(promptConfig, sourceText, task, systemPromptForCtx)
-	renderedSystem := render(systemPromptForCtx, ctx)
-	renderedTask := render(task, ctx)
-	modelCode := getModelCode(promptConfig)
-	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
-		renderedSystem, renderedTask, sourceText)
-	pl := payload{
-		Model: modelCode,
-		Messages: []message{
-			{Role: "system", Content: systemInstruction},
-			{Role: "user", Content: promptContent},
-		},
-	}
-	if schema, ok := promptConfig["output_schema"]; ok && schema != nil {
-		pl.ResponseFormat = map[string]any{
-			"type": "json_schema",
-			"json_schema": map[string]any{
-				"name":   "response_schema",
-				"strict": true,
-				"schema": schema,
-			},
-		}
-	} else {
-		pl.ResponseFormat = map[string]any{
-			"type": "json_schema",
-			"json_schema": map[string]any{
-				"name":   "response_schema",
-				"strict": true,
-				"schema": DefaultOutputSchema,
-			},
-		}
-	}
-	return pl, promptContent
+	return buildPayload(promptConfig, sourceText, "", task)
 }
 
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
@@ -1443,46 +1395,9 @@ func run(
 }
 
 func getModelPrices(config map[string]any) map[string]Prices {
-	prices := make(map[string]Prices)
-	for k, v := range ModelPricesUSDPer1M {
-		prices[k] = v
-	}
-	customAny, ok := config["model_prices_usd_per_1m"]
-	if !ok {
-		return prices
-	}
-	custom, ok := customAny.(map[string]any)
-	if !ok {
-		return prices
-	}
-	for model, val := range custom {
-		if arr, ok := val.([]any); ok && len(arr) >= 2 {
-			inPrice, ok1 := coerceFloat(arr[0])
-			outPrice, ok2 := coerceFloat(arr[1])
-			if ok1 && ok2 {
-				prices[model] = Prices{InUSDPer1M: inPrice, OutUSDPer1M: outPrice}
-			}
-		}
-	}
-	return prices
+	return GetModelPrices(config)
 }
 
 func estimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *float64 {
-	pt := 0
-	ct := 0
-	if usage.PromptTokens != nil {
-		pt = *usage.PromptTokens
-	}
-	if usage.CompletionTokens != nil {
-		ct = *usage.CompletionTokens
-	}
-	if pt == 0 && ct == 0 {
-		return nil
-	}
-	p, ok := prices[modelCode]
-	if !ok {
-		p = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
-	}
-	cost := (float64(pt)*p.InUSDPer1M + float64(ct)*p.OutUSDPer1M) / 1_000_000.0
-	return &cost
+	return EstimateCostUSD(modelCode, usage, prices)
 }

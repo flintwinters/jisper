@@ -244,56 +244,73 @@ func coerceFloat(v any) (float64, bool) {
 	}
 }
 
-type IssuePos struct {
-	Filename string `json:"Filename"`
-	Offset   int    `json:"Offset"`
-	Line     int    `json:"Line"`
-	Column   int    `json:"Column"`
+type Usage struct {
+	PromptTokens     *int `json:"prompt_tokens"`
+	CompletionTokens *int `json:"completion_tokens"`
+	TotalTokens      *int `json:"total_tokens"`
 }
 
-type Issue struct {
-	FromLinter           string   `json:"FromLinter"`
-	Text                 string   `json:"Text"`
-	Severity             string   `json:"Severity"`
-	SourceLines          []string `json:"SourceLines"`
-	Pos                  IssuePos `json:"Pos"`
-	ExpectNoLint         bool     `json:"ExpectNoLint"`
-	ExpectedNoLintLinter string   `json:"ExpectedNoLintLinter"`
+type Prices struct {
+	InUSDPer1M  float64
+	OutUSDPer1M float64
 }
 
-type IssuesFile struct {
-	Issues []Issue `json:"Issues"`
+var ModelPricesUSDPer1M = map[string]Prices{
+	"gpt-5.2":                   {InUSDPer1M: 5.0, OutUSDPer1M: 15.0},
+	"gpt-5-mini":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.0},
+	"qwen/qwen3-coder:exacto":   {InUSDPer1M: 0.22, OutUSDPer1M: 1.8},
+	"moonshotai/kimi-k2.5":      {InUSDPer1M: 0.25, OutUSDPer1M: 2.25},
+	"z-ai/glm-5":                {InUSDPer1M: 1.0, OutUSDPer1M: 3.2},
+	"openai/gpt-oss-120b:nitro": {InUSDPer1M: 0.35, OutUSDPer1M: 0.95},
+	"minimax/minimax-m2.5":      {InUSDPer1M: 0.30, OutUSDPer1M: 1.10},
 }
 
-func extractLinesAround(filename string, lineNum int, baseDir string, before int, after int) (string, bool) {
-	content, ok := readFileContent(baseDir, filename)
+const (
+	DefaultFallbackInputUSDPer1M  = 5.0
+	DefaultFallbackOutputUSDPer1M = 15.0
+)
+
+func EstimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *float64 {
+	pt := 0
+	ct := 0
+	if usage.PromptTokens != nil {
+		pt = *usage.PromptTokens
+	}
+	if usage.CompletionTokens != nil {
+		ct = *usage.CompletionTokens
+	}
+	if pt == 0 && ct == 0 {
+		return nil
+	}
+	p, ok := prices[modelCode]
 	if !ok {
-		return "", false
+		p = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
 	}
-	lines := strings.Split(content, "\n")
-	idx := lineNum - 1
-	if idx < 0 || idx >= len(lines) {
-		return "", false
-	}
-	start := idx - before
-	if start < 0 {
-		start = 0
-	}
-	end := idx + after + 1
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[start:end], "\n"), true
+	cost := (float64(pt)*p.InUSDPer1M + float64(ct)*p.OutUSDPer1M) / 1_000_000.0
+	return &cost
 }
 
-func loadIssuesFile(path string) (IssuesFile, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return IssuesFile{}, err
+func GetModelPrices(config map[string]any) map[string]Prices {
+	prices := make(map[string]Prices)
+	for k, v := range ModelPricesUSDPer1M {
+		prices[k] = v
 	}
-	var issues IssuesFile
-	if err := json.Unmarshal(b, &issues); err != nil {
-		return IssuesFile{}, err
+	customAny, ok := config["model_prices_usd_per_1m"]
+	if !ok {
+		return prices
 	}
-	return issues, nil
+	custom, ok := customAny.(map[string]any)
+	if !ok {
+		return prices
+	}
+	for model, val := range custom {
+		if arr, ok := val.([]any); ok && len(arr) >= 2 {
+			inPrice, ok1 := coerceFloat(arr[0])
+			outPrice, ok2 := coerceFloat(arr[1])
+			if ok1 && ok2 {
+				prices[model] = Prices{InUSDPer1M: inPrice, OutUSDPer1M: outPrice}
+			}
+		}
+	}
+	return prices
 }
