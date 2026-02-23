@@ -15,9 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hexops/gotextdiff"
-	"github.com/hexops/gotextdiff/myers"
-	"github.com/hexops/gotextdiff/span"
 	"github.com/pterm/pterm"
 	"go.yaml.in/yaml/v4"
 )
@@ -403,7 +400,8 @@ type payload struct {
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
 }
 
-func buildPayload(promptConfig map[string]any, sourceText string, routine string, taskOverride string) (payload, string) {
+func buildPayload(
+	promptConfig map[string]any, sourceText string, routine string, taskOverride string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
