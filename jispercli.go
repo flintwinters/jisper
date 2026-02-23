@@ -85,7 +85,8 @@ func executeRunAction(c *cli.Context) error {
 	} else if c.NArg() > 1 {
 		routine = c.Args().Get(1)
 	}
-	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"))
+	cliTask := c.String("task")
+	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), cliTask)
 	lang, _ := asNonEmptyStr(config["language"])
 	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
@@ -115,6 +116,7 @@ func main() {
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
 			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
+			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},
 		Action: executeRunAction,
 	}

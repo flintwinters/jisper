@@ -1104,7 +1104,7 @@ func getKeys(m map[string]any) []string {
 	return keys
 }
 
-func prepareRun(configPath string, routineName string) (map[string]any, payload, string, string, string) {
+func prepareRun(configPath string, routineName string, cliTask string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", configPath, err)
@@ -1160,7 +1160,13 @@ func prepareRun(configPath string, routineName string) (map[string]any, payload,
 	}
 	cwd, _ := os.Getwd()
 	srcMaterial := buildSourceMaterial(config, cwd, srcCtx)
-	pl, pContent := buildPayload(config, srcMaterial, routineName, endpointURL)
+	var pl payload
+	var pContent string
+	if strings.TrimSpace(cliTask) != "" {
+		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(cliTask))
+	} else {
+		pl, pContent = buildPayload(config, srcMaterial, routineName, endpointURL)
+	}
 	return config, pl, pContent, apiKey, endpointURL
 }
 
@@ -1331,8 +1337,8 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	runBuildStep(config, promptPath)
 }
 
-func run(path string, routine string, debug bool, noModel bool) (ModelResponse, Usage, string, map[string]any) {
-	cfg, pl, content, key, endpoint := prepareRun(path, routine)
+func run(path string, routine string, debug bool, noModel bool, cliTask string) (ModelResponse, Usage, string, map[string]any) {
+	cfg, pl, content, key, endpoint := prepareRun(path, routine, cliTask)
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
@@ -1390,5 +1396,3 @@ func estimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *f
 	cost := (float64(pt)*p.InUSDPer1M + float64(ct)*p.OutUSDPer1M) / 1_000_000.0
 	return &cost
 }
-
-
