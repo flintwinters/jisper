@@ -1133,7 +1133,9 @@ func prepareRun(configPath string, routineName string, cliTask string) (map[stri
 			os.Exit(2)
 		}
 	}
-	endpointURL, keyVar := ResolveEndpointAndAPIKey(config)
+	endpointURL, keyVar := ResolveEndpointAndAPIKey(
+		config,
+	)
 	apiKey := GetAPIKey(endpointURL, keyVar)
 	sysCtx := resolveSystemPrompt(config)
 	userCtx := resolveUserTask(config, routineName)
@@ -1298,7 +1300,9 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 		)
 		os.Exit(1)
 	}
-	endpointURL, keyVar := ResolveEndpointAndAPIKey(config)
+	endpointURL, keyVar := ResolveEndpointAndAPIKey(
+		config,
+	)
 	apiKey := GetAPIKey(endpointURL, keyVar)
 	modelCode := getModelCode(config)
 	lang, _ := asNonEmptyStr(config["language"])
