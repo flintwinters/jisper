@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	DefaultURL                    = "https://api.openai.com/v1/chat/completions"
 	DefaultFallbackInputUSDPer1M  = 5.0
 	DefaultFallbackOutputUSDPer1M = 15.0
+	DefaultMaxRetries             = 3
+	DefaultRetryInitialDelayMs    = 1000
+	DefaultRetryMaxDelayMs        = 30000
 )
 
 var DefaultOutputSchema = map[string]any{
@@ -376,14 +380,14 @@ type payload struct {
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
 }
 
-func buildPayload(promptConfig map[string]any, sourceText string, routineName string, _ string) (payload, string) {
+func buildPayload(promptConfig map[string]any, sourceText string, routine string, _ string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
 	}
 	systemPromptForCtx := resolveSystemPrompt(promptConfig)
 
-	userTask := resolveUserTask(promptConfig, routineName)
+	userTask := resolveUserTask(promptConfig, routine)
 	modelCode := getModelCode(promptConfig)
 
 	ctx := buildJinjaContext(promptConfig, sourceText, userTask, systemPromptForCtx)
@@ -994,6 +998,78 @@ func runBuildStep(config map[string]any, configPath string) {
 		code)
 }
 
+func callOpenAICompatibleWithRetry(endpointURL string, apiKey string, pl payload, config map[string]any) (map[string]any, http.Header, error) {
+	maxRetries := DefaultMaxRetries
+	if r, ok := config["max_retries"].(float64); ok {
+		maxRetries = int(r)
+	}
+	initialDelayMs := DefaultRetryInitialDelayMs
+	if d, ok := config["retry_initial_delay_ms"].(float64); ok {
+		initialDelayMs = int(d)
+	}
+	maxDelayMs := DefaultRetryMaxDelayMs
+	if d, ok := config["retry_max_delay_ms"].(float64); ok {
+		maxDelayMs = int(d)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := initialDelayMs
+			for i := 1; i < attempt; i++ {
+				delay *= 2
+				if delay > maxDelayMs {
+					delay = maxDelayMs
+					break
+				}
+			}
+			pterm.Info.Printfln("Retry attempt %d/%d after %dms...", attempt, maxRetries, delay)
+			time.Sleep(time.Duration(delay) * time.Millisecond)
+		}
+
+		apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
+		if err == nil {
+			return apiJSON, headers, nil
+		}
+
+		lastErr = err
+		shouldRetry := false
+		retryAfter := 0
+
+		if resp, ok := err.(retryableError); ok {
+			shouldRetry = resp.shouldRetry()
+			retryAfter = resp.retryAfter()
+		}
+
+		if !shouldRetry {
+			return nil, nil, err
+		}
+
+		if retryAfter > 0 && attempt < maxRetries {
+			delay := retryAfter
+			if delay > maxDelayMs {
+				delay = maxDelayMs
+			}
+			pterm.Info.Printfln("Rate limited, waiting %dms before retry...", delay)
+			time.Sleep(time.Duration(delay) * time.Millisecond)
+		}
+	}
+
+	return nil, nil, fmt.Errorf("all %d retry attempts failed: %w", maxRetries+1, lastErr)
+}
+
+type retryableError struct {
+	statusCode int
+	retryAfter int
+	message    string
+}
+
+func (e retryableError) Error() string   { return e.message }
+func (e retryableError) shouldRetry() bool {
+	return e.statusCode == 429 || e.statusCode >= 500
+}
+func (e retryableError) retryAfter() int { return e.retryAfter }
+
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
 	if err != nil {
@@ -1022,10 +1098,18 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		if len(bodyPreview) > 1000 {
 			bodyPreview = bodyPreview[:1000] + "... (truncated)"
 		}
+
+		retryAfter := 0
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if n, err := strconv.Atoi(strings.TrimSpace(ra)); err == nil {
+				retryAfter = n
+			}
+		}
+
 		errMsg := fmt.Sprintf(
 			"API request to %s returned status %d. Response body: %s",
 			endpointURL, resp.StatusCode, bodyPreview)
-		return nil, resp.Header, fmt.Errorf("%s", errMsg)
+		return nil, resp.Header, retryableError{statusCode: resp.StatusCode, retryAfter: retryAfter, message: errMsg}
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -1107,14 +1191,14 @@ func getKeys(m map[string]any) []string {
 	return keys
 }
 
-func prepareRun(configPath string, routineName string, cliTask string) (map[string]any, payload, string, string, string) {
+func prepareRun(configPath string, routine string, task string) (map[string]any, payload, string, string, string) {
 	config, err := loadPromptFile(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", configPath, err)
 		os.Exit(1)
 	}
-	if strings.TrimSpace(routineName) != "" {
-		if _, ok := resolveRoutineTask(config, routineName); !ok {
+	if strings.TrimSpace(routine) != "" {
+		if _, ok := resolveRoutineTask(config, routine); !ok {
 			routines, _ := config["routines"].(map[string]any)
 			available := []string{}
 			for k := range routines {
@@ -1124,11 +1208,11 @@ func prepareRun(configPath string, routineName string, cliTask string) (map[stri
 			if len(available) == 0 {
 				fmt.Fprintf(os.Stderr,
 					"Routine not found: %s. No routines are defined in the config file.\n",
-					routineName)
+					routine)
 			} else {
 				fmt.Fprintf(os.Stderr,
 					"Routine not found: %s. Available routines: %s\n",
-					routineName, strings.Join(available, ", "))
+					routine, strings.Join(available, ", "))
 			}
 			os.Exit(2)
 		}
@@ -1138,7 +1222,7 @@ func prepareRun(configPath string, routineName string, cliTask string) (map[stri
 	)
 	apiKey := GetAPIKey(endpointURL, keyVar)
 	sysCtx := resolveSystemPrompt(config)
-	userCtx := resolveUserTask(config, routineName)
+	userCtx := resolveUserTask(config, routine)
 	fileCtx := buildJinjaContext(config, "", userCtx, sysCtx)
 	render, _ := config["render_source_files_as_jinja"].(bool)
 	var srcCtx map[string]any
@@ -1149,10 +1233,10 @@ func prepareRun(configPath string, routineName string, cliTask string) (map[stri
 	srcMaterial := buildSourceMaterial(config, cwd, srcCtx)
 	var pl payload
 	var pContent string
-	if strings.TrimSpace(cliTask) != "" {
-		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(cliTask))
+	if strings.TrimSpace(task) != "" {
+		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(task))
 	} else {
-		pl, pContent = buildPayload(config, srcMaterial, routineName, endpointURL)
+		pl, pContent = buildPayload(config, srcMaterial, routine, endpointURL)
 	}
 	return config, pl, pContent, apiKey, endpointURL
 }
@@ -1201,7 +1285,7 @@ func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task s
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
 	modelCode := getModelCode(config)
 	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Waiting for %s...", modelCode))
-	apiJSON, headers, err := callOpenAICompatible(endpointURL, apiKey, pl)
+	apiJSON, headers, err := callOpenAICompatibleWithRetry(endpointURL, apiKey, pl, config)
 	if err != nil {
 		spinner.Fail(fmt.Sprintf("API call failed for model %s at %s: %v", modelCode, endpointURL, err))
 		os.Exit(1)
@@ -1332,8 +1416,9 @@ func runIssues(issues IssuesFile, promptPath string, debug bool, noModel bool) {
 	runBuildStep(config, promptPath)
 }
 
-func run(path string, routine string, debug bool, noModel bool, cliTask string) (ModelResponse, Usage, string, map[string]any) {
-	cfg, pl, content, key, endpoint := prepareRun(path, routine, cliTask)
+func run(
+	path string, routine string, debug bool, noModel bool, task string) (ModelResponse, Usage, string, map[string]any) {
+	cfg, pl, content, key, endpoint := prepareRun(path, routine, task)
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
