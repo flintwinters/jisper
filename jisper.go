@@ -998,6 +998,18 @@ func runBuildStep(config map[string]any, configPath string) {
 		code)
 }
 
+func calculateBackoff(attempt, initialDelayMs, maxDelayMs int) int {
+	delay := initialDelayMs
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay > maxDelayMs {
+			delay = maxDelayMs
+			break
+		}
+	}
+	return delay
+}
+
 func callOpenAICompatibleWithRetry(
 	endpointURL string,
 	apiKey string,
@@ -1020,14 +1032,7 @@ func callOpenAICompatibleWithRetry(
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			delay := initialDelayMs
-			for i := 1; i < attempt; i++ {
-				delay *= 2
-				if delay > maxDelayMs {
-					delay = maxDelayMs
-					break
-				}
-			}
+			delay := calculateBackoff(attempt, initialDelayMs, maxDelayMs)
 			pterm.Info.Printfln("Retry attempt %d/%d after %dms...", attempt, maxRetries, delay)
 			time.Sleep(time.Duration(delay) * time.Millisecond)
 		}
