@@ -382,6 +382,16 @@ func handleGlobalFlags(c *cli.Context) bool {
 
 func executeRunAction(c *cli.Context) error {
 	handleGlobalFlags(c)
+	if c.Bool("build") {
+		promptPath := c.String("prompt")
+		config, err := loadPromptFile(promptPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", promptPath, err)
+			os.Exit(1)
+		}
+		runBuildStep(config, promptPath)
+		return nil
+	}
 	promptPath := c.String("prompt")
 	if c.IsSet("issues") {
 		issuesFile := c.String("issues")
@@ -438,7 +448,7 @@ func main() {
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
-			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+			&cli.BoolFlag{Name: "redo"}, 		&cli.BoolFlag{Name: "build"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},
