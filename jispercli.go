@@ -408,6 +408,10 @@ func executeRunAction(c *cli.Context) error {
 		routine = c.Args().Get(0)
 	}
 	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), c.String("task"))
+	if c.Bool("debug") {
+		fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%+v\n", promptPath, routine, usage, mc)
+		fmt.Printf("DEBUG: full_files=%v\n", config["full_files"])
+	}
 	lang, _ := asNonEmptyStr(config["language"])
 	includes := resolveIncludedFiles(config, ".")
 	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.FullFiles)
