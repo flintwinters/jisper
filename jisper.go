@@ -175,15 +175,17 @@ var ModelPricesUSDPer1M = map[string]Prices{
 }
 
 func responseFormatFromConfig(config map[string]any) map[string]any {
+	schema := DefaultOutputSchema
 	if custom, ok := config["output_schema"].(map[string]any); ok {
-		return map[string]any{
-			"type":        "json_schema",
-			"json_schema": map[string]any{"strict": true, "name": "edit_schema", "schema": custom},
-		}
+		schema = custom
 	}
 	return map[string]any{
-		"type":        "json_schema",
-		"json_schema": map[string]any{"strict": true, "name": "edit_schema", "schema": DefaultOutputSchema},
+		"type": "json_schema",
+		"json_schema": map[string]any{
+			"name":   "edit_schema",
+			"strict": true,
+			"schema": schema,
+		},
 	}
 }
 
