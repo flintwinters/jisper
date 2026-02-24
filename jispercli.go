@@ -13,7 +13,12 @@ import (
 	cli "github.com/urfave/cli"
 )
 
-
+var (
+	styleKeyword = pterm.NewStyle(pterm.FgLightCyan)
+	styleNumber  = pterm.NewStyle(pterm.FgLightMagenta)
+	styleString  = pterm.NewStyle(pterm.FgLightYellow)
+	styleComment = pterm.NewStyle(pterm.FgGray, pterm.Italic)
+)
 
 func isLetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
