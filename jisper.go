@@ -402,13 +402,17 @@ type message struct {
 type payload struct {
 	Model          string         `json:"model"`
 	Messages       []message      `json:"messages"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	ResponseFormat map[string]any `json:"response_format"`
 	Provider       map[string]any `json:"provider,omitempty"`
 }
 
 func buildPayload(
-	promptConfig map[string]any, sourceText string, routine string,
-	taskOverride string, endpointURL string) (payload, string) {
+	promptConfig map[string]any,
+	sourceText string,
+	routine string,
+	taskOverride string,
+	endpointURL string,
+) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
@@ -523,8 +527,12 @@ func performCreateFile(baseDir, filename, newString, language string) (string, b
 }
 
 func applyReplacements(
-	repls []Replacement, baseDir string, language string,
-	configPath string, allowedFiles []string) []string {
+	repls []Replacement,
+	baseDir string,
+	language string,
+	configPath string,
+	allowedFiles []string,
+) []string {
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
@@ -1040,8 +1048,16 @@ func getIssueContextAndTask(issue Issue, baseDir string) (string, string, bool) 
 	return context, task, true
 }
 
-func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promptPath string,
-	debug, noModel bool, lang string) float64 {
+func processIssue(
+	issue Issue,
+	config map[string]any,
+	endpointURL string,
+	apiKey string,
+	promptPath string,
+	debug bool,
+	noModel bool,
+	lang string,
+) float64 {
 	context, task, ok := getIssueContextAndTask(issue, ".")
 	if !ok {
 		pterm.Error.Printfln("Failed to read %s (line %d). File may not exist or line number is out of range.",
