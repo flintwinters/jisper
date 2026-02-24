@@ -1151,6 +1151,10 @@ func run(
 		os.Exit(0)
 	}
 	mr, usage, code := callModel(endpoint, key, pl, cfg)
+	prices := getModelPrices(cfg)
+	if cost := estimateCostUSD(code, usage, prices); cost != nil {
+		pterm.Success.Printfln("$%.4f", *cost)
+	}
 	return mr, usage, code, cfg
 }
 
