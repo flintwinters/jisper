@@ -25,7 +25,7 @@ func repoFromDir(baseDir string) (string, bool) {
 	}
 }
 
-func runCmd(dir, _ string, args ...string) (string, int) {
+func runCmd(dir, sub string, args ...string) (string, int) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	var outBuf bytes.Buffer
