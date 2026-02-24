@@ -959,8 +959,8 @@ def apply_replacements(replacements, base_dir: Path | None = None, language: str
 
     def apply_single(i: int, r: dict) -> Path | None:
         filename = dict_get(r, "filename")
-        old_string = dict_get(r, "old_string")
-        new_string = dict_get(r, "new_string")
+        old_string = (dict_get(r, "old_string") or "").replace("\t", "")
+        new_string = (dict_get(r, "new_string") or "").replace("\t", "")
         
         if not filename:
             print(f"[red]Replacement #{i} missing filename; skipping[/red]")

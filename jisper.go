@@ -536,6 +536,8 @@ func applyReplacements(
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
+		oldString := strings.ReplaceAll(r.OldString, "\t", "")
+		newString := strings.ReplaceAll(r.NewString, "\t", "")
 		if os.Getenv("DEBUG_JISPER") != "" {
 			fmt.Printf("DEBUG: Attempting replacement #%d in %s\n", i, filename)
 		}
@@ -544,8 +546,8 @@ func applyReplacements(
 		}
 		targetPath := filepath.Join(baseDir, filename)
 		original, ok := readFileContent(baseDir, filename)
-		if !ok && strings.TrimSpace(r.OldString) == "" {
-			if p, ok := performCreateFile(baseDir, filename, r.NewString, language); ok {
+		if !ok && strings.TrimSpace(oldString) == "" {
+			if p, ok := performCreateFile(baseDir, filename, newString, language); ok {
 				changed = append(changed, p)
 			}
 			continue
@@ -553,7 +555,7 @@ func applyReplacements(
 		if !ok {
 			continue
 		}
-		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
+		updated, _, applied := applyOneReplacement(original, oldString, newString)
 		if !applied {
 			writeFailedOldStringToConfig(configPath, r.OldString)
 			continue
@@ -1085,10 +1087,14 @@ func processIssue(
 	prices := getModelPrices(config)
 	var cost float64
 	p := 0
-	if usage.PromptTokens != nil { p = *usage.PromptTokens }
+	if usage.PromptTokens != nil {
+		p = *usage.PromptTokens
+	}
 	c := 0
-	if usage.CompletionTokens != nil { c = *usage.CompletionTokens }
-	if (p > 0 || c > 0) {
+	if usage.CompletionTokens != nil {
+		c = *usage.CompletionTokens
+	}
+	if p > 0 || c > 0 {
 		if est := estimateCostUSD(mc, usage, prices); est != nil {
 			pterm.Success.Printfln("$%.4f", *est)
 			cost = *est
@@ -1159,10 +1165,14 @@ func run(
 	mr, usage, code := callModel(endpoint, key, pl, cfg)
 	prices := getModelPrices(cfg)
 	p := 0
-	if usage.PromptTokens != nil { p = *usage.PromptTokens }
+	if usage.PromptTokens != nil {
+		p = *usage.PromptTokens
+	}
 	c := 0
-	if usage.CompletionTokens != nil { c = *usage.CompletionTokens }
-	if (p > 0 || c > 0) {
+	if usage.CompletionTokens != nil {
+		c = *usage.CompletionTokens
+	}
+	if p > 0 || c > 0 {
 		if est := estimateCostUSD(code, usage, prices); est != nil {
 			pterm.Success.Printfln("$%.4f", *est)
 		}
