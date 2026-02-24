@@ -1084,9 +1084,15 @@ func processIssue(
 	pterm.Info.Printfln("Commit: %s", msg)
 	prices := getModelPrices(config)
 	var cost float64
-	if c := estimateCostUSD(mc, usage, prices); c != nil {
-		pterm.Success.Printfln("$%.4f", *c)
-		cost = *c
+	p := 0
+	if usage.PromptTokens != nil { p = *usage.PromptTokens }
+	c := 0
+	if usage.CompletionTokens != nil { c = *usage.CompletionTokens }
+	if (p > 0 || c > 0) {
+		if est := estimateCostUSD(mc, usage, prices); est != nil {
+			pterm.Success.Printfln("$%.4f", *est)
+			cost = *est
+		}
 	}
 	repo := initRepoIfMissing(".")
 	if len(changed) > 0 {
@@ -1152,8 +1158,14 @@ func run(
 	}
 	mr, usage, code := callModel(endpoint, key, pl, cfg)
 	prices := getModelPrices(cfg)
-	if cost := estimateCostUSD(code, usage, prices); cost != nil {
-		pterm.Success.Printfln("$%.4f", *cost)
+	p := 0
+	if usage.PromptTokens != nil { p = *usage.PromptTokens }
+	c := 0
+	if usage.CompletionTokens != nil { c = *usage.CompletionTokens }
+	if (p > 0 || c > 0) {
+		if est := estimateCostUSD(code, usage, prices); est != nil {
+			pterm.Success.Printfln("$%.4f", *est)
+		}
 	}
 	return mr, usage, code, cfg
 }
