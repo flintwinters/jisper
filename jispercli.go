@@ -414,7 +414,7 @@ func executeRunAction(c *cli.Context) error {
 	}
 	lang, _ := asNonEmptyStr(config["language"])
 	includes := resolveIncludedFiles(config, ".")
-	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.FullFiles)
+	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.SourceFiles)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
 	if msg == "" {
 		msg = "Apply model edits"
