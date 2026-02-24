@@ -280,3 +280,16 @@ func EstimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *f
 	cost := float64(*usage.PromptTokens)/1_000_000*p.InUSDPer1M + float64(*usage.CompletionTokens)/1_000_000*p.OutUSDPer1M
 	return &cost
 }
+
+func isFileAllowed(filename string, allowedFiles []string) bool {
+	if len(allowedFiles) == 0 {
+		return true
+	}
+	normalized := filepath.Clean(filename)
+	for _, allowed := range allowedFiles {
+		if filepath.Clean(allowed) == normalized {
+			return true
+		}
+	}
+	return false
+}

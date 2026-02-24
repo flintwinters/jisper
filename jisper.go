@@ -15,6 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hexops/gotextdiff"
+	"github.com/hexops/gotextdiff/myers"
+	"github.com/hexops/gotextdiff/span"
 	"github.com/pterm/pterm"
 	"go.yaml.in/yaml/v4"
 )
@@ -818,12 +821,21 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
 	return out
 }
 
-func applyReplacements(repls []Replacement, baseDir string, language string, configPath string) []string {
+func applyReplacements(
+	repls []Replacement, baseDir string, language string,
+	configPath string, allowedFiles []string) []string {
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
 		if filename == "" {
 			pterm.Error.Printfln("Replacement #%d missing filename; skipping. Replacement object: %+v", i, r)
+			continue
+		}
+		if !isFileAllowed(filename, allowedFiles) {
+			pterm.Error.Printfln(
+				"Replacement rejected: '%s' is not in full_files list. "+
+					"Only files explicitly listed in full_files can be modified. Skipping replacement #%d.",
+				filename, i)
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
@@ -1365,7 +1377,9 @@ func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promp
 		return 0
 	}
 	mr, usage, mc := callModel(endpointURL, apiKey, pl, config)
-	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
+	changed := applyReplacements(
+		mr.Edit.Replacements, ".", lang, promptPath,
+		[]string{issue.Pos.Filename})
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
 	if msg == "" {
 		msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)

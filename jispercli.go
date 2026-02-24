@@ -422,7 +422,10 @@ func executeRunAction(c *cli.Context) error {
 	cliTask := c.String("task")
 	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), cliTask)
 	lang, _ := asNonEmptyStr(config["language"])
-	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath)
+	includes := resolveIncludedFiles(config, ".")
+	changed := applyReplacements(
+		mr.Edit.Replacements, ".", lang, promptPath,
+		includes.FullFiles)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
 	if msg == "" {
 		msg = "Apply model edits"
@@ -448,7 +451,7 @@ func main() {
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
-			&cli.BoolFlag{Name: "redo"}, 		&cli.BoolFlag{Name: "build"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},
