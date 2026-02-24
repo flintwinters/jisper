@@ -942,7 +942,12 @@ func prepareRun(configPath string, routine string, task string) (map[string]any,
 	return config, pl, pContent, apiKey, endpointURL
 }
 
-func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string, endpointURL string) (payload, string) {
+func buildPayloadWithTask(
+	promptConfig map[string]any,
+	sourceText string,
+	task string,
+	endpointURL string,
+) (payload, string) {
 	return buildPayload(promptConfig, sourceText, "", task, endpointURL)
 }
 
