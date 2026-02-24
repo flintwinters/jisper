@@ -382,66 +382,40 @@ func handleGlobalFlags(c *cli.Context) bool {
 	return false
 }
 
+func handleRunIssueAction(c *cli.Context, promptPath string) error {
+	issuesFile := c.String("issues")
+	issues, err := loadIssuesFile(issuesFile)
+	if err != nil {
+		os.Exit(1)
+	}
+	runIssues(issues, promptPath, c.Bool("debug"), c.Bool("no-model"))
+	return nil
+}
+
 func executeRunAction(c *cli.Context) error {
 	handleGlobalFlags(c)
+	promptPath := c.String("prompt")
 	if c.Bool("build") {
-		promptPath := c.String("prompt")
-		config, err := loadPromptFile(promptPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", promptPath, err)
-			os.Exit(1)
-		}
+		config, _ := loadPromptFile(promptPath)
 		runBuildStep(config, promptPath)
 		return nil
 	}
-	promptPath := c.String("prompt")
 	if c.IsSet("issues") {
-		issuesFile := c.String("issues")
-		issues, err := loadIssuesFile(issuesFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to load issues file %s: %v\n", issuesFile, err)
-			os.Exit(1)
-		}
-		if len(issues.Issues) == 0 {
-			fmt.Fprintf(os.Stderr, "Issues file %s contains no issues to process.\n", issuesFile)
-			os.Exit(0)
-		}
-		runIssues(issues, promptPath, c.Bool("debug"), c.Bool("no-model"))
-		return nil
-	}
-	if !c.IsSet("prompt") && c.NArg() > 0 {
-		promptPath = c.Args().First()
-	}
-	if _, err := os.Stat(c.Args().Get(0)); err == nil {
-		promptPath = c.Args().Get(0)
+		return handleRunIssueAction(c, promptPath)
 	}
 	routine := ""
-	if c.NArg() > 0 && c.Args().Get(0) != promptPath {
+	if c.NArg() > 0 {
 		routine = c.Args().Get(0)
-	} else if c.NArg() > 1 {
-		routine = c.Args().Get(1)
 	}
-	cliTask := c.String("task")
-	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), cliTask)
+	mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), c.String("task"))
 	lang, _ := asNonEmptyStr(config["language"])
 	includes := resolveIncludedFiles(config, ".")
-	changed := applyReplacements(
-		mr.Edit.Replacements, ".", lang, promptPath,
-		includes.FullFiles)
+	changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.FullFiles)
 	msg := strings.TrimSpace(mr.Edit.CommitMessage)
 	if msg == "" {
 		msg = "Apply model edits"
 	}
-	pterm.Info.Printfln("Commit: %s", msg)
-	prices := getModelPrices(config)
-	if cost := estimateCostUSD(mc, usage, prices); cost != nil {
-		pterm.Success.Printfln("$%.4f", *cost)
-	}
 	repo := initRepoIfMissing(".")
-	if len(changed) == 0 {
-		fmt.Println("No changes; skipping commit")
-		return nil
-	}
 	stageAndCommit(repo, changed, msg)
 	runBuildStep(config, promptPath)
 	return nil
@@ -453,7 +427,8 @@ func main() {
 		Flags: []cli.Flag{
 			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
-			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"}, &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"},
+			&cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},

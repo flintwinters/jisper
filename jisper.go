@@ -15,9 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hexops/gotextdiff"
-	"github.com/hexops/gotextdiff/myers"
-	"github.com/hexops/gotextdiff/span"
 	"github.com/pterm/pterm"
 	"go.yaml.in/yaml/v4"
 )
@@ -503,7 +500,17 @@ func applyOneReplacement(original string, oldString string, newString string) (s
 	return "", "", false
 }
 
-
+func performCreateFile(baseDir, filename, newString, language string) (string, bool) {
+	targetPath := filepath.Join(baseDir, filename)
+	_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
+	fmt.Printf("\n\x1b[1m%s\x1b[0m\n", filename)
+	printNumberedCombinedDiff("", newString, filename, language)
+	if err := os.WriteFile(targetPath, []byte(newString), 0o644); err != nil {
+		pterm.Error.Printfln("Failed to create file %s: %v", targetPath, err)
+		return "", false
+	}
+	return targetPath, true
+}
 
 func applyReplacements(
 	repls []Replacement, baseDir string, language string,
@@ -511,59 +518,34 @@ func applyReplacements(
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
-		if filename == "" {
-			pterm.Error.Printfln("Replacement #%d missing filename; skipping. Replacement object: %+v", i, r)
-			continue
+		if os.Getenv("DEBUG_JISPER") != "" {
+			fmt.Printf("DEBUG: Attempting replacement #%d in %s\n", i, filename)
 		}
-		if !isFileAllowed(filename, allowedFiles) {
-			pterm.Error.Printfln(
-				"Replacement rejected: '%s' is not in full_files list. "+
-					"Only files explicitly listed in full_files can be modified. Skipping replacement #%d.",
-				filename, i)
+		if filename == "" || !isFileAllowed(filename, allowedFiles) {
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
 		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(r.OldString) == "" {
-			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			fmt.Printf("\n\x1b[1m%s\x1b[0m\n", filename)
-			printNumberedCombinedDiff("", r.NewString, filename, language)
-			if err := os.WriteFile(targetPath, []byte(r.NewString), 0o644); err != nil {
-				pterm.Error.Printfln("Failed to create file %s: %v", targetPath, err)
-				continue
+			if p, ok := performCreateFile(baseDir, filename, r.NewString, language); ok {
+				changed = append(changed, p)
 			}
-			changed = append(changed, targetPath)
 			continue
 		}
 		if !ok {
-			pterm.Error.Printfln(
-				"Target file not found: %s (resolved to: %s). Cannot apply replacement #%d.",
-				filename, targetPath, i)
 			continue
 		}
 		updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
 		if !applied {
-			oldPreview := r.OldString
-			if len(oldPreview) > 200 {
-				oldPreview = oldPreview[:200] + "... (truncated, total length: " + fmt.Sprintf("%d", len(r.OldString)) + " chars)"
-			}
-			pterm.Warning.Printfln(
-				"old_string not found in %s; skipping repl #%d. Searched for (first 200 chars): %q",
-				filename, i, oldPreview,
-			)
 			writeFailedOldStringToConfig(configPath, r.OldString)
 			continue
 		}
 		if updated == original {
-			pterm.Info.Printfln(
-				"No changes applied to %s (old_string matched but replacement produced identical content)",
-				filename)
 			continue
 		}
 		fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
-			pterm.Error.Printfln("Failed to write file %s: %v", targetPath, err)
 			continue
 		}
 		changed = append(changed, targetPath)
