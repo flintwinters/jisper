@@ -401,10 +401,12 @@ type payload struct {
 	Model          string         `json:"model"`
 	Messages       []message      `json:"messages"`
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	Provider       map[string]any `json:"provider,omitempty"`
 }
 
 func buildPayload(
-	promptConfig map[string]any, sourceText string, routine string, taskOverride string) (payload, string) {
+	promptConfig map[string]any, sourceText string, routine string,
+	taskOverride string, endpointURL string) (payload, string) {
 	systemInstruction := "You are a helpful assistant."
 	if s, ok := asNonEmptyStr(promptConfig["system_instruction"]); ok {
 		systemInstruction = s
@@ -429,9 +431,15 @@ func buildPayload(
 			{Role: "system", Content: systemInstruction},
 			{Role: "user", Content: promptContent},
 		},
+		ResponseFormat: responseFormatFromConfig(promptConfig),
 	}
 
-	pl.ResponseFormat = responseFormatFromConfig(promptConfig)
+	if strings.Contains(endpointURL, "openrouter.ai") {
+		pl.Provider = map[string]any{
+			"require_parameters": true,
+		}
+	}
+
 	return pl, promptContent
 }
 
@@ -927,15 +935,15 @@ func prepareRun(configPath string, routine string, task string) (map[string]any,
 	var pl payload
 	var pContent string
 	if strings.TrimSpace(task) != "" {
-		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(task))
+		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(task), endpointURL)
 	} else {
-		pl, pContent = buildPayload(config, srcMaterial, routine, endpointURL)
+		pl, pContent = buildPayload(config, srcMaterial, routine, "", endpointURL)
 	}
 	return config, pl, pContent, apiKey, endpointURL
 }
 
-func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string) (payload, string) {
-	return buildPayload(promptConfig, sourceText, "", task)
+func buildPayloadWithTask(promptConfig map[string]any, sourceText string, task string, endpointURL string) (payload, string) {
+	return buildPayload(promptConfig, sourceText, "", task, endpointURL)
 }
 
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
@@ -1033,7 +1041,7 @@ func processIssue(issue Issue, config map[string]any, endpointURL, apiKey, promp
 			issue.Pos.Filename, issue.Pos.Line)
 		return 0
 	}
-	pl, content := buildPayloadWithTask(config, context, task)
+	pl, content := buildPayloadWithTask(config, context, task, endpointURL)
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
