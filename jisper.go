@@ -645,8 +645,8 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
 			break
 		}
 	}
-	    setOrAddKey := func(key, value string, insertAt *int) {
-        value = strings.ReplaceAll(value, "\t", "")
+	setOrAddKey := func(key, value string, insertAt *int) {
+		value = strings.ReplaceAll(value, "\t", "    ")
 		for i := 0; i < len(root.Content); i += 2 {
 			if root.Content[i].Value == key {
 				root.Content[i+1].Value = value
