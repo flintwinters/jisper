@@ -178,12 +178,12 @@ func responseFormatFromConfig(config map[string]any) map[string]any {
 	if custom, ok := config["output_schema"].(map[string]any); ok {
 		return map[string]any{
 			"type":        "json_schema",
-			"json_schema": map[string]any{"strict": true, "schema": custom},
+			"json_schema": map[string]any{"strict": true, "name": "edit_schema", "schema": custom},
 		}
 	}
 	return map[string]any{
 		"type":        "json_schema",
-		"json_schema": map[string]any{"strict": true, "schema": DefaultOutputSchema},
+		"json_schema": map[string]any{"strict": true, "name": "edit_schema", "schema": DefaultOutputSchema},
 	}
 }
 
