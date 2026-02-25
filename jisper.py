@@ -985,6 +985,10 @@ def apply_replacements(replacements, base_dir: Path | None = None, language: str
         updated, _ = apply_one_replacement(original, old_string, new_string)
         if updated is None:
             print(f"[yellow]old_string not found in {filename}; skipping[/yellow]")
+            print("[red]-- FAILED old_string --[/red]")
+            print(old_string)
+            print("[red]-- FAILED new_string --[/red]")
+            print(new_string)
             return None
         if updated == original:
             print(f"[yellow]No changes applied to {filename} (replacement produced identical content)[/yellow]")

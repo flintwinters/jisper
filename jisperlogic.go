@@ -198,6 +198,11 @@ func applyReplacements(
 		}
 		updated, _, applied := applyOneReplacement(original, oldString, newString)
 		if !applied {
+			pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
+			pterm.Error.Println("-- FAILED old_string --")
+			fmt.Println(oldString)
+			pterm.Error.Println("-- FAILED new_string --")
+			fmt.Println(newString)
 			writeFailedOldStringToConfig(configPath, r.OldString)
 			continue
 		}
@@ -211,7 +216,7 @@ func applyReplacements(
 		}
 		changed = append(changed, targetPath)
 	}
-	    return changed, failed
+	return changed
 }
 
 func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code int) {
