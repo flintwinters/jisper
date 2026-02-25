@@ -392,7 +392,7 @@ func handleRunIssueAction(c *cli.Context, promptPath string) error {
 	return nil
 }
 
-func executeRunAction(c *cli.Context) error {
+func runActionHandler(c *cli.Context) error {
 	handleGlobalFlags(c)
 	promptPath := c.String("prompt")
 	if c.Bool("build") {
@@ -436,7 +436,7 @@ func main() {
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},
-		Action: executeRunAction,
+		Action: runActionHandler,
 	}
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)

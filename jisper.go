@@ -784,6 +784,24 @@ func (e retryableError) shouldRetry() bool {
 }
 func (e retryableError) retryAfter() int { return e.retryAfterSeconds }
 
+func newRetryableError(statusCode int, headers http.Header, endpointURL string, body []byte) retryableError {
+	bodyPreview := truncateString(string(body), 1000)
+	retryAfter := 0
+	if ra := headers.Get("Retry-After"); ra != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(ra)); err == nil {
+			retryAfter = n
+		}
+	}
+	return retryableError{
+		statusCode:        statusCode,
+		retryAfterSeconds: retryAfter,
+		message: fmt.Sprintf(
+			"API request to %s returned status %d. Response body: %s",
+			endpointURL, statusCode, bodyPreview,
+		),
+	}
+}
+
 func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
 	b, err := json.Marshal(pl)
 	if err != nil {
@@ -808,32 +826,14 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 		return nil, resp.Header, fmt.Errorf("failed to read response body from %s: %w", endpointURL, err)
 	}
 	if resp.StatusCode != 200 {
-		bodyPreview := string(body)
-		if len(bodyPreview) > 1000 {
-			bodyPreview = bodyPreview[:1000] + "... (truncated)"
-		}
-
-		retryAfter := 0
-		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if n, err := strconv.Atoi(strings.TrimSpace(ra)); err == nil {
-				retryAfter = n
-			}
-		}
-
-		errMsg := fmt.Sprintf(
-			"API request to %s returned status %d. Response body: %s",
-			endpointURL, resp.StatusCode, bodyPreview)
-		return nil, resp.Header, retryableError{statusCode: resp.StatusCode, retryAfterSeconds: retryAfter, message: errMsg}
+		return nil, resp.Header, newRetryableError(resp.StatusCode, resp.Header, endpointURL, body)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var apiJSON map[string]any
 	if err := dec.Decode(&apiJSON); err != nil {
-		bodyPreview := string(body)
-		if len(bodyPreview) > 500 {
-			bodyPreview = bodyPreview[:500] + "... (truncated)"
-		}
+		bodyPreview := truncateString(string(body), 500)
 		return nil, resp.Header, fmt.Errorf(
 			"failed to parse API response as JSON from %s. Parse error: %w. Response body: %s",
 			endpointURL, err, bodyPreview) // split long fmt.Errorf line
@@ -897,6 +897,25 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
 	return mr, nil
 }
 
+func reportCost(modelCode string, usage Usage, config map[string]any) float64 {
+	prices := getModelPrices(config)
+	p := 0
+	if usage.PromptTokens != nil {
+		p = *usage.PromptTokens
+	}
+	c := 0
+	if usage.CompletionTokens != nil {
+		c = *usage.CompletionTokens
+	}
+	if p > 0 || c > 0 {
+		if est := estimateCostUSD(modelCode, usage, prices); est != nil {
+			pterm.Success.Printfln("$%.4f", *est)
+			return *est
+		}
+	}
+	return 0.0
+}
+
 func getKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -945,23 +964,8 @@ func prepareRun(configPath string, routine string, task string) (map[string]any,
 	}
 	cwd, _ := os.Getwd()
 	srcMaterial := buildSourceMaterial(config, cwd, srcCtx)
-	var pl payload
-	var pContent string
-	if strings.TrimSpace(task) != "" {
-		pl, pContent = buildPayloadWithTask(config, srcMaterial, strings.TrimSpace(task), endpointURL)
-	} else {
-		pl, pContent = buildPayload(config, srcMaterial, routine, "", endpointURL)
-	}
+	pl, pContent := buildPayload(config, srcMaterial, routine, strings.TrimSpace(task), endpointURL)
 	return config, pl, pContent, apiKey, endpointURL
-}
-
-func buildPayloadWithTask(
-	promptConfig map[string]any,
-	sourceText string,
-	task string,
-	endpointURL string,
-) (payload, string) {
-	return buildPayload(promptConfig, sourceText, "", task, endpointURL)
 }
 
 func callModel(endpointURL string, apiKey string, pl payload, config map[string]any) (ModelResponse, Usage, string) {
@@ -1067,7 +1071,7 @@ func processIssue(
 			issue.Pos.Filename, issue.Pos.Line)
 		return 0
 	}
-	pl, content := buildPayloadWithTask(config, context, task, endpointURL)
+	pl, content := buildPayload(config, context, "", task, endpointURL)
 	if debug {
 		fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
 	}
@@ -1085,22 +1089,7 @@ func processIssue(
 		msg = fmt.Sprintf("Fix %s issue in %s", issue.FromLinter, issue.Pos.Filename)
 	}
 	pterm.Info.Printfln("Commit: %s", msg)
-	prices := getModelPrices(config)
-	var cost float64
-	p := 0
-	if usage.PromptTokens != nil {
-		p = *usage.PromptTokens
-	}
-	c := 0
-	if usage.CompletionTokens != nil {
-		c = *usage.CompletionTokens
-	}
-	if p > 0 || c > 0 {
-		if est := estimateCostUSD(mc, usage, prices); est != nil {
-			pterm.Success.Printfln("$%.4f", *est)
-			cost = *est
-		}
-	}
+	cost := reportCost(mc, usage, config)
 	repo := initRepoIfMissing(".")
 	if len(changed) > 0 {
 		stageAndCommit(repo, changed, msg)
@@ -1164,20 +1153,7 @@ func run(
 		os.Exit(0)
 	}
 	mr, usage, code := callModel(endpoint, key, pl, cfg)
-	prices := getModelPrices(cfg)
-	p := 0
-	if usage.PromptTokens != nil {
-		p = *usage.PromptTokens
-	}
-	c := 0
-	if usage.CompletionTokens != nil {
-		c = *usage.CompletionTokens
-	}
-	if p > 0 || c > 0 {
-		if est := estimateCostUSD(code, usage, prices); est != nil {
-			pterm.Success.Printfln("$%.4f", *est)
-		}
-	}
+	reportCost(code, usage, cfg)
 	return mr, usage, code, cfg
 }
 

@@ -137,6 +137,13 @@ func toRel(base, target string) string {
 	return rel
 }
 
+func truncateString(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen] + "... (truncated)"
+	}
+	return s
+}
+
 func buildJinjaContext(cfg map[string]any, source, task, sys string) map[string]any {
 	m := map[string]any{"source_text": source, "task": task, "system_prompt": sys}
 	for k, v := range cfg {
