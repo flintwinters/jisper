@@ -154,32 +154,6 @@ Behavior notes:
 
 If Jisper detects a git repo (walking upward from the current directory), it stages changed files and creates a commit using `edit.commit_message` (or `Apply model edits` if missing). Outside a repo it still applies edits, but skips committing.
 
-## Cost reporting
-
-Jisper prints a simple cost line derived from token usage when available. Defaults exist for a small set of model codes, and you can override/add prices via `model_prices_usd_per_1m`:
-
-```yaml
-model_prices_usd_per_1m:
-  gpt-5.2: [5.0, 15.0]
-  my-model: [2.0, 6.0]
-```
-
-## Retry configuration
-
-Jisper automatically retries failed API requests with exponential backoff. Configure retry behavior:
-
-```yaml
-max_retries: 3  # number of retry attempts (default: 3)
-retry_initial_delay_ms: 1000  # initial delay in milliseconds (default: 1000)
-retry_max_delay_ms: 30000  # maximum delay cap in milliseconds (default: 30000)
-```
-
-Retries are triggered on:
-- Rate limit errors (429 status)
-- Server errors (5xx status)
-
-The client respects the `Retry-After` header when present in rate limit responses.
-
 ## Error handling
 
 Jisper provides detailed, actionable error messages for all failure modes. Errors include:

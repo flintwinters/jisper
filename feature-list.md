@@ -59,14 +59,14 @@ A parity checklist for rebuilding Jisper in Go. This list reflects current behav
   - [x] Input level: includes only `context.INTENT` when present.
 - [x] Emits selected summary content as YAML under headers like `--- FILENAME: path ---`.
 
-## Jinja templating
+## Variable Templating (Simple Replacement)
 
-- [x] Always renders `system_prompt` and `task` as Jinja templates using a context derived from config.
-- [x] Optional: `render_source_files_as_jinja` enables rendering included source files.
-- [x] Jinja context includes:
+- [x] Renders `system_prompt` and `task` by replacing `{{key}}` variables. Note: this is a direct string replacement, not a full Jinja/Go template engine.
+- [x] Optional: `render_source_files_as_jinja` enables rendering included source files using the same simple replacement.
+- [x] Template context includes:
   - [x] all top-level config keys (shallow copy)
   - [x] `source_text`, `task`, `system_prompt`
-  - [ ] build result fields (`build_stdout`, `build_stderr`, `success`, `error`) not injected into context.
+  - [ ] build result fields (`build_stdout`, `build_stderr`, `success`, `error`) are not available in the context of the same run that produced them, but are written to the config file for use in subsequent runs.
 
 ## Prompt construction
 
