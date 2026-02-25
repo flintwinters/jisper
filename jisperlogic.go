@@ -25,7 +25,7 @@ type message struct {
 type payload struct {
 	Model          string         `json:"model"`
 	Messages       []message      `json:"messages"`
-	ResponseFormat map[string]any `json:"response_format"`
+	ResponseFormat map[string]any `json:"response_format,omitempty"`
 	Provider       map[string]any `json:"provider,omitempty"`
 }
 
