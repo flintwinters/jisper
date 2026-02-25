@@ -115,7 +115,7 @@ func responseFormatFromConfig(config map[string]any) map[string]any {
 	return map[string]any{
 		"type": "json_schema",
 		"json_schema": map[string]any{
-			"name":   "edit_schema",
+			"name":   "response_schema",
 			"strict": true,
 			"schema": schema,
 		},
@@ -304,7 +304,7 @@ func buildSourceMaterial(promptConfig map[string]any, baseDir string, jinjaConte
 }
 
 func reportCost(modelCode string, usage Usage, config map[string]any) float64 {
-	prices := getModelPrices(config)
+	prices := GetModelPrices(config)
 	p := 0
 	if usage.PromptTokens != nil {
 		p = *usage.PromptTokens
@@ -314,7 +314,7 @@ func reportCost(modelCode string, usage Usage, config map[string]any) float64 {
 		c = *usage.CompletionTokens
 	}
 	if p > 0 || c > 0 {
-		if est := estimateCostUSD(modelCode, usage, prices); est != nil {
+		if est := EstimateCostUSD(modelCode, usage, prices); est != nil {
 			pterm.Success.Printfln("$%.4f", *est)
 			return *est
 		}
@@ -399,12 +399,4 @@ func run(
 	mr, usage, code := callModel(endpoint, key, pl, cfg)
 	reportCost(code, usage, cfg)
 	return mr, usage, code, cfg
-}
-
-func getModelPrices(config map[string]any) map[string]Prices {
-	return GetModelPrices(config)
-}
-
-func estimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *float64 {
-	return EstimateCostUSD(modelCode, usage, prices)
 }
