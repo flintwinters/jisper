@@ -75,7 +75,8 @@ func buildPayload(
 	renderedSystem := render(systemPromptForCtx, ctx)
 	renderedTask := render(userTask, ctx)
 
-	promptContent := fmt.Sprintf("SYSTEM PROMPT:\n%s\nTASK:\n%s\nSOURCE MATERIAL:\n%s",
+	promptContent := fmt.Sprintf(
+		"SYSTEM PROMPT:\n%s\n\nTASK:\n%s\n\nSOURCE MATERIAL:\n%s",
 		renderedSystem, renderedTask, sourceText)
 	pl := payload{
 		Model: modelCode,
@@ -84,12 +85,6 @@ func buildPayload(
 			{Role: "user", Content: promptContent},
 		},
 		ResponseFormat: responseFormatFromConfig(promptConfig),
-	}
-
-	if strings.Contains(endpointURL, "openrouter.ai") {
-		pl.Provider = map[string]any{
-			"require_parameters": true,
-		}
 	}
 
 	return pl, promptContent
