@@ -1,60 +1,36 @@
 package main
 
 import (
-    "bytes"
     "fmt"
     "os"
-    "os/exec"
     "path/filepath"
-    "strings"
+
+    "github.com/go-git/go-git/v5"
+    "github.com/go-git/go-git/v5/plumbing"
+    "github.com/go-git/go-git/v5/plumbing/object"
 )
 
-func repoFromDir(baseDir string) (string, bool) {
-    p := baseDir
-    for {
-        gitDir := filepath.Join(p, ".git")
-        st, err := os.Stat(gitDir)
-        if err == nil && st.IsDir() {
-            return p, true
-        }
-        parent := filepath.Dir(p)
-        if parent == p {
-            return "", false
-        }
-        p = parent
-    }
-}
-
-func runCmd(dir, sub string, args ...string) (string, int) {
-    cmd := exec.Command("git", args...)
-    cmd.Dir = dir
-    var outBuf bytes.Buffer
-    var errBuf bytes.Buffer
-    cmd.Stdout = &outBuf
-    cmd.Stderr = &errBuf
-    err := cmd.Run()
-    exitCode := 0
+func repoFromDir(baseDir string) (*git.Repository, bool) {
+    r, err := git.PlainOpenWithOptions(baseDir, &git.PlainOpenOptions{DetectDotGit: true})
     if err != nil {
-        if ee, ok := err.(*exec.ExitError); ok {
-            exitCode = ee.ExitCode()
-        } else {
-            exitCode = 1
-        }
+        return nil, false
     }
-    return outBuf.String(), exitCode
+    return r, true
 }
 
-func stageAndCommit(repoRoot string, changedFiles []string, message string) {
-    relpaths := make([]string, 0, len(changedFiles))
-    for _, p := range changedFiles {
-        relpaths = append(relpaths, toRel(repoRoot, p))
-    }
-    relpaths = dedupeKeepOrder(relpaths)
-    if len(relpaths) == 0 {
+func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
+    w, err := r.Worktree()
+    if err != nil {
         return
     }
-    _, _ = runCmd(repoRoot, "git", append([]string{"add"}, relpaths...)...)
-    _, _ = runCmd(repoRoot, "git", "commit", "-m", message)
+    conf, _ := r.Config()
+    for _, p := range dedupeKeepOrder(changedFiles) {
+        rel, _ := filepath.Rel(conf.Core.Worktree, p)
+        _, _ = w.Add(rel)
+    }
+    _, _ = w.Commit(message, &git.CommitOptions{
+        Author: &object.Signature{Name: "Jisper", Email: "jisper@localhost"},
+    })
 }
 
 func requireValidRepo(baseDir string) (string, bool) {
@@ -93,38 +69,26 @@ func undoLastCommit(baseDir string) int {
 }
 
 func redoLastCommit(baseDir string) int {
-    repoRoot, ok := requireValidRepo(baseDir)
+    r, ok := repoFromDir(baseDir)
     if !ok {
         return 1
     }
-    origPath := filepath.Join(repoRoot, ".git", "ORIG_HEAD")
-    if _, err := os.Stat(origPath); err != nil {
-        fmt.Fprintln(os.Stderr,
-            "Cannot redo: .git/ORIG_HEAD not found. ORIG_HEAD is only set after certain git operations like reset.")
-        fmt.Fprintln(os.Stderr, "Run 'git reflog' to find the commit you want to restore.")
+    ref, err := r.Reference(plumbing.ReferenceName("ORIG_HEAD"), true)
+    if err != nil {
         return 1
     }
-    out, _ := runCmd(repoRoot, "git", "rev-parse", "ORIG_HEAD")
-    sha := strings.TrimSpace(out)
-    if sha == "" {
-        fmt.Fprintln(os.Stderr, "Cannot redo: ORIG_HEAD is empty. Run 'git reflog' to find commit to restore.")
-        return 1
-    }
-    _, code := runCmd(repoRoot, "git", "reset", "--hard", sha)
-    if code != 0 {
-        fmt.Fprintf(os.Stderr, "Git reset to ORIG_HEAD (%s) failed. The reflog may have more information.\n", sha)
-        return 1
-    }
-    fmt.Printf("Redid undo (reset to ORIG_HEAD: %s)\n", sha[:min(8, len(sha))])
+    w, _ := r.Worktree()
+    _ = w.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: ref.Hash()})
+    fmt.Printf("Redid undo (reset to ORIG_HEAD: %s)\n", ref.Hash().String()[:8])
     return 0
 }
 
-func initRepoIfMissing(baseDir string) string {
-    repoRoot, ok := repoFromDir(baseDir)
+func initRepoIfMissing(baseDir string) *git.Repository {
+    r, ok := repoFromDir(baseDir)
     if ok {
-        return repoRoot
+        return r
     }
-    _, _ = runCmd(baseDir, "git", "init")
+    r, _ = git.PlainInit(baseDir, false)
     fmt.Printf("Initialized empty Git repository in %s/.git\n", baseDir)
-    return baseDir
+    return r
 }
