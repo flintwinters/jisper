@@ -177,8 +177,8 @@ func applyReplacements(
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
-		oldString := strings.ReplaceAll(r.OldString, "	", "")
-		newString := strings.ReplaceAll(r.NewString, "	", "")
+		oldString := strings.ReplaceAll(r.OldString, "	", "    ")
+		newString := strings.ReplaceAll(r.NewString, "	", "    ")
 		if os.Getenv("DEBUG_JISPER") != "" {
 			fmt.Printf("DEBUG: Attempting replacement #%d in %s", i, filename)
 		}
