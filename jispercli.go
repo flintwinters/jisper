@@ -432,7 +432,7 @@ func main() {
 			cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
 			cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
 			&cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"},
-			&cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+			&cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"}, &cli.BoolFlag{Name: "auto-retry"},
 			cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
 			cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
 		},

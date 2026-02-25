@@ -25,7 +25,7 @@ type message struct {
 type payload struct {
 	Model          string         `json:"model"`
 	Messages       []message      `json:"messages"`
-	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	ResponseFormat map[string]any `json:"response_format"`
 	Provider       map[string]any `json:"provider,omitempty"`
 }
 
@@ -177,8 +177,8 @@ func applyReplacements(
 	changed := []string{}
 	for i, r := range repls {
 		filename := strings.TrimSpace(r.Filename)
-		oldString := strings.ReplaceAll(r.OldString, "	", "    ")
-		newString := strings.ReplaceAll(r.NewString, "	", "    ")
+		oldString := strings.ReplaceAll(r.OldString, "\t", "    ")
+		newString := strings.ReplaceAll(r.NewString, "\t", "    ")
 		if os.Getenv("DEBUG_JISPER") != "" {
 			fmt.Printf("DEBUG: Attempting replacement #%d in %s", i, filename)
 		}
@@ -211,7 +211,7 @@ func applyReplacements(
 		}
 		changed = append(changed, targetPath)
 	}
-	return changed
+	    return changed, failed
 }
 
 func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code int) {
@@ -393,6 +393,9 @@ func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[st
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal request payload: %w", err)
 	}
+	b = bytes.ReplaceAll(b, []byte("\\u003c"), []byte("<"))
+	b = bytes.ReplaceAll(b, []byte("\\u003e"), []byte(">"))
+	b = bytes.ReplaceAll(b, []byte("\\u0026"), []byte("&"))
 	req, err := http.NewRequest("POST", endpointURL, bytes.NewReader(b))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create HTTP request to %s: %w", endpointURL, err)
