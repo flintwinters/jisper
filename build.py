@@ -57,8 +57,7 @@ def test():
 @app.command()
 def build():
     """Build the main backend binary, showing errors on failure."""
-    out_dir = project_root / "bin"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = project_root / "jisper"
     go_files = [f.name for f in project_root.glob("*.go")]
     # Run go build, capturing stdout and stderr for detailed error reporting
     result = subprocess.run(
@@ -88,10 +87,11 @@ def clean():
 
 
 @app.command()
-def all():
+def all(no_lint: bool = typer.Option(False, "--no-lint", help="Turn off linting.")):
     """Run all tasks: fmt, lint, vet, test, build."""
     fmt()
-    lint()
+    if not no_lint:
+        lint()
     vet()
     # test()
     build()
