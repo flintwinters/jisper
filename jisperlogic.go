@@ -174,29 +174,43 @@ func applyReplacements(
 	configPath string,
 	allowedFiles []string,
 ) []string {
+	pterm.Debug.Println("Starting applyReplacements")
 	changed := []string{}
 	for i, r := range repls {
+		pterm.Debug.Printf("Processing replacement #%d\n", i)
 		filename := strings.TrimSpace(r.Filename)
 		oldString := strings.ReplaceAll(r.OldString, "\t", "    ")
 		newString := strings.ReplaceAll(r.NewString, "\t", "    ")
+
+		pterm.Debug.Printf("  Filename: %s\n", filename)
+		pterm.Debug.Printf("  Old String: %s\n", oldString)
+		pterm.Debug.Printf("  New String: %s\n", newString)
+
 		if os.Getenv("DEBUG_JISPER") != "" {
 			fmt.Printf("DEBUG: Attempting replacement #%d in %s", i, filename)
 		}
 		if filename == "" || !isFileAllowed(filename, allowedFiles) {
+			pterm.Debug.Printf("  Skipping: filename is empty or not in allowed files.\n")
 			continue
 		}
 		targetPath := filepath.Join(baseDir, filename)
+		pterm.Debug.Printf("  Target path: %s\n", targetPath)
 		original, ok := readFileContent(baseDir, filename)
 		if !ok && strings.TrimSpace(oldString) == "" {
+			pterm.Debug.Println("  File does not exist and old_string is empty, attempting to create file.")
 			if p, ok := performCreateFile(baseDir, filename, newString, language); ok {
 				changed = append(changed, p)
 			}
 			continue
 		}
 		if !ok {
+			pterm.Debug.Printf("  Skipping: could not read file content for %s.\n", filename)
 			continue
 		}
-		updated, _, applied := applyOneReplacement(original, oldString, newString)
+		pterm.Debug.Println("  File content read successfully.")
+
+		updated, matchedOld, applied := applyOneReplacement(original, oldString, newString)
+		pterm.Debug.Printf("  applyOneReplacement result: applied=%v, matchedOld='%s'\n", applied, matchedOld)
 		if !applied {
 			pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
 			pterm.Error.Println("-- FAILED old_string --")
@@ -207,15 +221,19 @@ func applyReplacements(
 			continue
 		}
 		if updated == original {
+			pterm.Debug.Println("  Skipping: content is identical after replacement.")
 			continue
 		}
 		fmt.Printf("\x1b[1m%s\x1b[0m", filename)
 		printNumberedCombinedDiff(original, updated, filename, language)
 		if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
+			pterm.Error.Printf("  Failed to write file %s: %v\n", targetPath, err)
 			continue
 		}
+		pterm.Debug.Printf("  Successfully wrote changes to %s\n", targetPath)
 		changed = append(changed, targetPath)
 	}
+	pterm.Debug.Println("Finished applyReplacements")
 	return changed
 }
 
