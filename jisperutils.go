@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -299,4 +300,150 @@ func isFileAllowed(filename string, allowedFiles []string) bool {
 		}
 	}
 	return false
+}
+
+func resolveOnePath(v string, baseDir string) []string {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return []string{}
+	}
+	p := filepath.Join(baseDir, s)
+	st, err := os.Stat(p)
+	if err == nil && st.IsDir() {
+		ents, _ := os.ReadDir(p)
+		out := make([]string, 0)
+		for _, e := range ents {
+			if !e.IsDir() {
+				out = append(out, filepath.Join(s, e.Name()))
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	if err == nil && !st.IsDir() {
+		return []string{s}
+	}
+	matches, _ := filepath.Glob(p)
+	out := make([]string, 0)
+	for _, m := range matches {
+		if mst, _ := os.Stat(m); mst != nil && !mst.IsDir() {
+			out = append(out, toRel(baseDir, m))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func resolvePathsAndGlobs(values []string, baseDir string) []string {
+	return dedupeKeepOrder(flatMapStr(values, func(v string) []string {
+		return resolveOnePath(v, baseDir)
+	}))
+}
+
+func stripJSONCodeFence(s string) string {
+	t := strings.TrimSpace(s)
+	if !strings.HasPrefix(t, "```") {
+		return s
+	}
+	lines := strings.Split(t, "\n")
+	if len(lines) < 2 {
+		return s
+	}
+	first := strings.ToLower(strings.TrimSpace(lines[0]))
+	if first != "```json" && first != "```" {
+		return s
+	}
+	if strings.TrimSpace(lines[len(lines)-1]) != "```" {
+		return s
+	}
+	inner := strings.Join(lines[1:len(lines)-1], "\n")
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return ""
+	}
+	return inner + "\n"
+}
+
+func getKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func stripANSI(s string) string {
+	result := []byte{}
+	inEscape := false
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if inEscape {
+			if b == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		if b == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			inEscape = true
+			i++
+			continue
+		}
+		result = append(result, b)
+	}
+	return string(result)
+}
+
+func collapseCRUpdates(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(line, "\r")
+		if len(parts) > 0 {
+			out = append(out, parts[len(parts)-1])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func sanitizeOutput(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = collapseCRUpdates(raw)
+	raw = stripANSI(raw)
+	lines := filterNonEmpty(strings.Split(raw, "\n"))
+	raw = strings.Join(lines, "\n")
+	if raw != "" && !strings.HasSuffix(raw, "\n") {
+		raw += "\n"
+	}
+	return raw
+}
+
+func filterNonEmpty(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func extractLinesAround(filename string, lineNum int, baseDir string, before, after int) (string, bool) {
+	content, ok := readFileContent(baseDir, filename)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(content, "\n")
+	start := lineNum - 1 - before
+	if start < 0 {
+		start = 0
+	}
+	end := lineNum + after
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var out []string
+	for i := start; i < end; i++ {
+		out = append(out, lines[i])
+	}
+	return strings.Join(out, "\n"), true
 }
