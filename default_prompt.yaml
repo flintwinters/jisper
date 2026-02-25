@@ -57,8 +57,17 @@ system_prompt: >
 
 
 routines:
+  debug: >
+    Debug the following error:
+
+    Use debug printouts to uncover more diagnostic detail. DO NOT use custom os environment variables specific to this project.
+
+    Move the functionality into sub-modules to improve code hygiene.
+
+    {{build_stdout}} {{build_stderr}}
+    
   dry: >
-    Think a lot about ways to reduce code size: identifing opportunities to improve code-reuse by factoring out common functionality into unified function calls, adhering to software engineering best practices, practicing good code hygiene, and following DRY principles.
+    Think a lot about ways to reduce code size: identifing opportunities to improve code-reuse by factoring out common functionality into unified function calls, adhering to software engineering best practices, practicing good code hygiene, improving separation of concerns, and following DRY principles.
     
     Do not compromise functionality under any circumstances.
     Specifically explore easy ways to use higher order functions if possible.
