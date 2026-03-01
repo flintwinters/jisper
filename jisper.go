@@ -140,7 +140,7 @@ func responseFormatFromConfig(config map[string]any) map[string]any {
 func getModelCode(config map[string]any) string {
     model, ok := asNonEmptyStr(config["model"])
     if !ok {
-        fmt.Fprintln(os.Stderr, "Missing required config key: 'model'. Add a model identifier to your prompt config, e.g.:")
+        fmt.Fprintln(os.Stderr, "Missing required 'model' key. Example:")
         fmt.Fprintln(os.Stderr, "  model: gpt-5.2")
         os.Exit(2)
     }
