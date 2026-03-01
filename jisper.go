@@ -400,7 +400,8 @@ func callModel(endpointURL string, apiKey string, pl payload, config map[string]
 }
 
 func run(
-    path string, routine string, debug bool, noModel bool, task string) (ModelResponse, Usage, string, map[string]any) {
+    path string, routine string, debug bool, noModel bool, task string,
+) (ModelResponse, Usage, string, map[string]any, string, string) {
     cfg, pl, content, key, endpoint := prepareRun(path, routine, task)
     if debug {
         fmt.Printf("\n--- PROMPT ---\n%s\n--- END PROMPT ---\n", content)
@@ -413,5 +414,5 @@ func run(
     }
     mr, usage, code := callModel(endpoint, key, pl, cfg)
     reportCost(code, usage, cfg)
-    return mr, usage, code, cfg
+    return mr, usage, code, cfg, endpoint, key
 }

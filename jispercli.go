@@ -407,14 +407,16 @@ func runActionHandler(c *cli.Context) error {
     if c.NArg() > 0 {
         routine = c.Args().Get(0)
     }
-    mr, usage, mc, config := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), c.String("task"))
+    mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), c.String("task"))
     if c.Bool("debug") {
         fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%+v\n", promptPath, routine, usage, mc)
         fmt.Printf("DEBUG: full_files=%v\n", config["full_files"])
     }
     lang, _ := asNonEmptyStr(config["language"])
     includes := resolveIncludedFiles(config, ".")
-    changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.SourceFiles, c.Bool("auto-retry"), config, endpoint, key)
+    changed := applyReplacements(
+        mr.Edit.Replacements, ".", lang, promptPath, 
+        includes.SourceFiles, c.Bool("auto-retry"), config, endpointURL, apiKey)
     msg := strings.TrimSpace(mr.Edit.CommitMessage)
     if msg == "" {
         msg = "Apply model edits"
