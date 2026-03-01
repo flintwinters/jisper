@@ -283,7 +283,8 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
     lexer := guessLexer(oldText+"\n"+newText, filename, language)
     styleDel := pterm.NewStyle(pterm.FgLightRed)
     styleIns := pterm.NewStyle(pterm.FgLightGreen)
-    styleDelPre, styleInsPre := pterm.NewStyle(pterm.FgLightRed), pterm.NewStyle(pterm.FgLightGreen)
+    styleDelPre := pterm.NewStyle(pterm.FgLightRed)
+    styleInsPre := pterm.NewStyle(pterm.FgLightGreen)
     out := []string{}
     for _, hunk := range diff.Hunks {
         lines := hunk.Lines
@@ -308,10 +309,12 @@ func formatCombinedDiffLines(oldText, newText, filename, language string, contex
                 s := ""
                 switch line.Kind {
                 case gotextdiff.Insert:
-                    s = styledLineNumber(&newLn, styleIns, 4) + styleInsPre.Sprint(" + ") + highlightLine(content, lexer)
+                    s = styledLineNumber(&newLn, styleIns, 4) + 
+                        styleInsPre.Sprint(" + ") + highlightLine(content, lexer)
                     newLn++
                 case gotextdiff.Delete:
-                    s = styledLineNumber(&oldLn, styleDel, 4) + styleDelPre.Sprint(" - ") + highlightLine(content, lexer)
+                    s = styledLineNumber(&oldLn, styleDel, 4) + 
+                        styleDelPre.Sprint(" - ") + highlightLine(content, lexer)
                     oldLn++
                 default:
                     s = styledLineNumber(&oldLn, nil, 4) + "   " + highlightLine(content, lexer)
