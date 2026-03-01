@@ -292,7 +292,8 @@ func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, 
         }
         dumped, _ := yaml.Marshal(selected)
         if len(dumped) > 0 {
-            parts = append(parts, fmt.Sprintf("--- FILENAME: %s ---\n%s", filename, strings.TrimSpace(string(dumped))))
+            content := strings.TrimSpace(string(dumped))
+            parts = append(parts, fmt.Sprintf("--- FILENAME: %s ---\n%s", filename, content))
         }
     }
     return strings.Join(parts, "\n\n")
