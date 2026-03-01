@@ -179,7 +179,7 @@ func applyReplacements(
     for i, r := range repls {
         pterm.Debug.Printf("Processing replacement #%d\n", i)
         filename := strings.TrimSpace(r.Filename)
-        oldString := strings.ReplaceAll(r.OldString, "\t", "    ")
+        oldString := r.OldString
         newString := strings.ReplaceAll(r.NewString, "\t", "    ")
 
         pterm.Debug.Printf("  Filename: %s\n", filename)
