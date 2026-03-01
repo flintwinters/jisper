@@ -413,7 +413,10 @@ func runActionHandler(c *cli.Context) error {
     if c.NArg() > 0 {
         routine = c.Args().Get(0)
     }
-    mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, c.Bool("debug"), c.Bool("no-model"), c.String("task"))
+    debug := c.Bool("debug")
+    noModel := c.Bool("no-model")
+    task := c.String("task")
+    mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
     if c.Bool("debug") {
         fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%+v\n", promptPath, routine, usage, mc)
         fmt.Printf("DEBUG: full_files=%v\n", config["full_files"])
