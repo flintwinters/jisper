@@ -167,6 +167,44 @@ func performCreateFile(baseDir, filename, newString, language string) (string, b
     return targetPath, true
 }
 
+func processSingleReplacement(
+    r Replacement,
+    baseDir string,
+    language string,
+    allowedFiles []string,
+) (string, bool) {
+    filename := strings.TrimSpace(r.Filename)
+    oldString := r.OldString
+    newString := strings.ReplaceAll(r.NewString, "\t", "    ")
+
+    if filename == "" || !isFileAllowed(filename, allowedFiles) {
+        return "", false
+    }
+
+    original, ok := readFileContent(baseDir, filename)
+    if !ok && strings.TrimSpace(oldString) == "" {
+        return performCreateFile(baseDir, filename, newString, language)
+    }
+
+    if !ok {
+        return "", false
+    }
+
+    updated, actualOld, ok := findAndReplace(original, oldString, newString)
+    if !ok {
+        return "", false
+    }
+
+    fmt.Printf("\x1b[1m%s\x1b[0m", filename)
+    printNumberedCombinedDiff(original, updated, filename, language)
+    targetPath := filepath.Join(baseDir, filename)
+    if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
+        pterm.Error.Printfln("Failed to write file %s: %v", targetPath, err)
+        return "", false
+    }
+    return targetPath, true
+}
+
 func applyReplacements(
     repls []Replacement,
     baseDir string,
@@ -180,34 +218,13 @@ func applyReplacements(
 ) []string {
     pterm.Debug.Println("Starting applyReplacements")
     changed := []string{}
-    for i, r := range repls {
-        pterm.Debug.Printf("Processing replacement #%d\n", i)
-        filename := strings.TrimSpace(r.Filename)
-        oldString := r.OldString
-        newString := strings.ReplaceAll(r.NewString, "\t", "    ")
-
-        pterm.Debug.Printf("  Filename: %s\n", filename)
-        pterm.Debug.Printf("  Old String: %s\n", oldString)
-        pterm.Debug.Printf("  New String: %s\n", newString)
-
-        if os.Getenv("DEBUG_JISPER") != "" {
-            fmt.Printf("DEBUG: Attempting replacement #%d in %s", i, filename)
+    for _, r := range repls {
+        if p, ok := processSingleReplacement(r, baseDir, language, allowedFiles); ok {
+            changed = append(changed, p)
         }
-        if filename == "" || !isFileAllowed(filename, allowedFiles) {
-            pterm.Debug.Printf("  Skipping: filename is empty or not in allowed files.\n")
-            continue
-        }
-        targetPath := filepath.Join(baseDir, filename)
-        pterm.Debug.Printf("  Target path: %s\n", targetPath)
-        original, ok := readFileContent(baseDir, filename)
-        if !ok && strings.TrimSpace(oldString) == "" {
-            pterm.Debug.Println("  File does not exist and old_string is empty, attempting to create file.")
-            if p, ok := performCreateFile(baseDir, filename, newString, language); ok {
-                changed = append(changed, p)
-            }
-            continue
-        }
-        if !ok {
+    }
+    return changed
+}
             pterm.Debug.Printf("  Skipping: could not read file content for %s.\n", filename)
             continue
         }
