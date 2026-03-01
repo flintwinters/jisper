@@ -239,7 +239,10 @@ func applyReplacements(
                 continue
             }
             pterm.Info.Printfln("Auto-retrying failed replacement for %s...", filename)
-            retryTask := fmt.Sprintf("The string replacement for file '%s' failed because the old_string was not found. Please fix the old_string to match the actual file content exactly.\n\nFAILED OLD_STRING:\n%s\n\nFAILED NEW_STRING:\n%s", filename, oldString, newString)
+            retryTask := fmt.Sprintf("The string replacement for file '%s' failed because the "+
+                "old_string was not found. Please fix the old_string to match the actual "+
+                "file content exactly.\n\nFAILED OLD_STRING:\n%s\n\nFAILED NEW_STRING:\n%s",
+                filename, oldString, newString)
             originalSource, _ := readFileContent(baseDir, filename)
             pl, _ := buildPayload(config, originalSource, "", retryTask, endpointURL)
             retryMr, _, _ := callModel(endpointURL, apiKey, pl, config)
