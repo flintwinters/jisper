@@ -338,7 +338,11 @@ func reportCost(modelCode string, usage Usage, config map[string]any) float64 {
     return 0.0
 }
 
-func prepareRun(configPath string, routine string, task string) (map[string]any, payload, string, string, string) {
+func prepareRun(
+    configPath string,
+    routine string,
+    task string,
+) (map[string]any, payload, string, string, string) {
     config, err := loadPromptFile(configPath)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Failed to load prompt config from %s: %v\n", configPath, err)
