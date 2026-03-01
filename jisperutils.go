@@ -285,7 +285,9 @@ func EstimateCostUSD(modelCode string, usage Usage, prices map[string]Prices) *f
     if !ok {
         p = Prices{InUSDPer1M: DefaultFallbackInputUSDPer1M, OutUSDPer1M: DefaultFallbackOutputUSDPer1M}
     }
-    cost := float64(*usage.PromptTokens)/1_000_000*p.InUSDPer1M + float64(*usage.CompletionTokens)/1_000_000*p.OutUSDPer1M
+    inC := float64(*usage.PromptTokens) / 1_000_000 * p.InUSDPer1M
+    outC := float64(*usage.CompletionTokens) / 1_000_000 * p.OutUSDPer1M
+    cost := inC + outC
     return &cost
 }
 
