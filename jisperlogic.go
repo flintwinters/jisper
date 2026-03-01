@@ -337,7 +337,8 @@ func updatePromptConfigWithBuildResults(path string, stdout, stderr string, code
         nk := &yaml.Node{Kind: yaml.ScalarNode, Value: key}
         nv := &yaml.Node{Kind: yaml.ScalarNode, Value: value, Style: yaml.LiteralStyle}
         if *insertAt >= 0 {
-            root.Content = append(root.Content[:*insertAt], append([]*yaml.Node{nk, nv}, root.Content[*insertAt:]...)...)
+            added := []*yaml.Node{nk, nv}
+            root.Content = append(root.Content[:*insertAt], append(added, root.Content[*insertAt:]...)...)
             *insertAt += 2
         } else {
             root.Content = append(root.Content, nk, nv)
