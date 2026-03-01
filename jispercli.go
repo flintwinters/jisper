@@ -277,7 +277,10 @@ func styledLineNumber(ln *int, style *pterm.Style, width int) string {
     return s
 }
 
-func formatCombinedDiffLines(oldText, newText, filename, language string, contextLines int) []string {
+func formatCombinedDiffLines(
+    oldText, newText, filename, language string,
+    contextLines int,
+) []string {
     edits := myers.ComputeEdits(span.URIFromPath("a"), oldText, newText)
     diff := gotextdiff.ToUnified("a", "b", oldText, edits)
     lexer := guessLexer(oldText+"\n"+newText, filename, language)
