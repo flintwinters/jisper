@@ -571,7 +571,10 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
     }
     content, ok := contentAny.(string)
     if !ok {
-        return ModelResponse{}, fmt.Errorf("API response choices[0].message.content is not a string, got %T", contentAny)
+        return ModelResponse{}, fmt.Errorf(
+            "API response choices[0].message.content is not a string, got %T",
+            contentAny,
+        )
     }
     content = stripJSONCodeFence(content)
     var mr ModelResponse
