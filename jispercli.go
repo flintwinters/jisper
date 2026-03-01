@@ -414,7 +414,7 @@ func runActionHandler(c *cli.Context) error {
     }
     lang, _ := asNonEmptyStr(config["language"])
     includes := resolveIncludedFiles(config, ".")
-    changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.SourceFiles)
+    changed := applyReplacements(mr.Edit.Replacements, ".", lang, promptPath, includes.SourceFiles, c.Bool("auto-retry"), config, endpoint, key)
     msg := strings.TrimSpace(mr.Edit.CommitMessage)
     if msg == "" {
         msg = "Apply model edits"
@@ -432,7 +432,8 @@ func main() {
             cli.StringFlag{Name: "prompt, p", Value: DefaultPromptFile},
             cli.BoolFlag{Name: "new"}, cli.BoolFlag{Name: "undo, u"},
             &cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"},
-            &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"}, &cli.BoolFlag{Name: "auto-retry"},
+            &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
+            &cli.BoolFlag{Name: "auto-retry"},
             cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
             cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
         },
