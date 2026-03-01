@@ -247,7 +247,8 @@ func applyReplacements(
             pl, _ := buildPayload(config, originalSource, "", retryTask, endpointURL)
             retryMr, _, _ := callModel(endpointURL, apiKey, pl, config)
             retryChanged := applyReplacements(
-                retryMr.Edit.Replacements, baseDir, language, configPath, allowedFiles, false, config, endpointURL, apiKey,
+                retryMr.Edit.Replacements, baseDir, language, configPath,
+                allowedFiles, false, config, endpointURL, apiKey,
             )
             changed = append(changed, retryChanged...)
             continue
