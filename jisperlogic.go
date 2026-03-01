@@ -535,7 +535,10 @@ func callOpenAICompatible(
 func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
     choicesAny, ok := apiJSON["choices"]
     if !ok {
-        return ModelResponse{}, fmt.Errorf("API response missing 'choices' field. Response keys: %v", getKeys(apiJSON))
+        return ModelResponse{}, fmt.Errorf(
+            "API response missing 'choices' field. Response keys: %v",
+            getKeys(apiJSON),
+        )
     }
     choices, ok := choicesAny.([]any)
     if !ok {
