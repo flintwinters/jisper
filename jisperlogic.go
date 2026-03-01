@@ -444,7 +444,11 @@ func newRetryableError(statusCode int, headers http.Header, endpointURL string, 
     }
 }
 
-func callOpenAICompatible(endpointURL string, apiKey string, pl payload) (map[string]any, http.Header, error) {
+func callOpenAICompatible(
+    endpointURL string,
+    apiKey string,
+    pl payload,
+) (map[string]any, http.Header, error) {
     b, err := json.Marshal(pl)
     if err != nil {
         return nil, nil, fmt.Errorf("failed to marshal request payload: %w", err)
