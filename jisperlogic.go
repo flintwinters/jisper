@@ -219,19 +219,22 @@ func applyReplacements(
     pterm.Debug.Println("Starting applyReplacements")
     changed := []string{}
     for _, r := range repls {
-        if p, ok := processSingleReplacement(r, baseDir, language, allowedFiles); ok {
-            changed = append(changed, p)
-        }
-    }
-    return changed
-}
-            pterm.Debug.Printf("  Skipping: could not read file content for %s.\n", filename)
+        filename := strings.TrimSpace(r.Filename)
+        if filename == "" || !isFileAllowed(filename, allowedFiles) {
             continue
         }
-        pterm.Debug.Println("  File content read successfully.")
+        targetPath := filepath.Join(baseDir, filename)
+        original, ok := readFileContent(baseDir, filename)
+        if !ok {
+            if strings.TrimSpace(r.OldString) == "" {
+                if p, ok := performCreateFile(baseDir, filename, r.NewString, language); ok {
+                    changed = append(changed, p)
+                }
+            }
+            continue
+        }
 
-        updated, matchedOld, applied := applyOneReplacement(original, oldString, newString)
-        pterm.Debug.Printf("  applyOneReplacement result: applied=%v, matchedOld='%s'\n", applied, matchedOld)
+        updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
         if !applied {
             pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
             if !autoRetry {
@@ -242,19 +245,16 @@ func applyReplacements(
             retryTask := fmt.Sprintf("The string replacement for file '%s' failed because the "+
                 "old_string was not found. Please fix the old_string to match the actual "+
                 "file content exactly.\n\nFAILED OLD_STRING:\n%s\n\nFAILED NEW_STRING:\n%s",
-                filename, oldString, newString)
-            originalSource, _ := readFileContent(baseDir, filename)
-            pl, _ := buildPayload(config, originalSource, "", retryTask, endpointURL)
+                filename, r.OldString, r.NewString)
+            pl, _ := buildPayload(config, original, "", retryTask, endpointURL)
             retryMr, _, _ := callModel(endpointURL, apiKey, pl, config)
             retryChanged := applyReplacements(
                 retryMr.Edit.Replacements, baseDir, language, configPath,
-                allowedFiles, false, config, endpointURL, apiKey,
-            )
+                allowedFiles, false, config, endpointURL, apiKey)
             changed = append(changed, retryChanged...)
             continue
         }
         if updated == original {
-            pterm.Debug.Println("  Skipping: content is identical after replacement.")
             continue
         }
         fmt.Printf("\x1b[1m%s\x1b[0m", filename)
@@ -263,10 +263,8 @@ func applyReplacements(
             pterm.Error.Printf("  Failed to write file %s: %v\n", targetPath, err)
             continue
         }
-        pterm.Debug.Printf("  Successfully wrote changes to %s\n", targetPath)
         changed = append(changed, targetPath)
     }
-    pterm.Debug.Println("Finished applyReplacements")
     return changed
 }
 
@@ -328,7 +326,8 @@ func runBuildStep(config map[string]any, configPath string) {
     fmt.Printf("Build: %s", cmdStr)
     cmd := exec.Command("/bin/sh", "-c", cmdStr)
     var outB, errB bytes.Buffer
-    cmd.Stdout, cmd.Stderr = io.MultiWriter(os.Stdout, &outB), io.MultiWriter(os.Stderr, &errB)
+    cmd.Stdout = io.MultiWriter(os.Stdout, &outB)
+    cmd.Stderr = io.MultiWriter(os.Stderr, &errB)
     err := cmd.Run()
     code := 0
     if err != nil {
