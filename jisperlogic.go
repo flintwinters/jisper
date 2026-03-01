@@ -167,47 +167,7 @@ func performCreateFile(baseDir, filename, newString, language string) (string, b
     return targetPath, true
 }
 
-func processSingleReplacement(
-    r Replacement,
-    baseDir string,
-    language string,
-    allowedFiles []string,
-) (string, bool) {
-    filename := strings.TrimSpace(r.Filename)
-    oldString := r.OldString
-    newString := strings.ReplaceAll(r.NewString, "\t", "    ")
 
-    if filename == "" || !isFileAllowed(filename, allowedFiles) {
-        return "", false
-    }
-
-    original, ok := readFileContent(baseDir, filename)
-    if !ok && strings.TrimSpace(oldString) == "" {
-        return performCreateFile(baseDir, filename, newString, language)
-    }
-
-    if !ok {
-        return "", false
-    }
-
-    updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
-    if !applied {
-        if os.Getenv("DEBUG_JISPER") != "" {
-            fmt.Printf("DEBUG: findAndReplace failed for %s\n", filename)
-        }
-        return "", false
-    }
-
-    if os.Getenv("DEBUG_JISPER") != "" {
-        fmt.Printf("DEBUG: applied replacement in %s using anchor: %s\n", filename, actualOld)
-    }
-
-    fmt.Printf("\x1b[1m%s\x1b[0m", filename)
-    printNumberedCombinedDiff(original, updated, filename, language)
-    targetPath := filepath.Join(baseDir, filename)
-    if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
-        pterm.Error.Printfln("Failed to write file %s: %v", targetPath, err)
-        return "", false
     }
     return targetPath, true
 }
