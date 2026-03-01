@@ -190,9 +190,16 @@ func processSingleReplacement(
         return "", false
     }
 
-    updated, actualOld, ok := findAndReplace(original, oldString, newString)
-    if !ok {
+    updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
+    if !applied {
+        if os.Getenv("DEBUG_JISPER") != "" {
+            fmt.Printf("DEBUG: findAndReplace failed for %s\n", filename)
+        }
         return "", false
+    }
+
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: applied replacement in %s using anchor: %s\n", filename, actualOld)
     }
 
     fmt.Printf("\x1b[1m%s\x1b[0m", filename)
@@ -234,9 +241,15 @@ func applyReplacements(
             continue
         }
 
-        updated, _, applied := applyOneReplacement(original, r.OldString, r.NewString)
+        if os.Getenv("DEBUG_JISPER") != "" {
+            fmt.Printf("DEBUG: applying replacement for %s\n", filename)
+        }
+        updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
         if !applied {
             pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
+            if os.Getenv("DEBUG_JISPER") != "" {
+                fmt.Printf("DEBUG: failed to find %s\n", r.OldString)
+            }
             if !autoRetry {
                 writeFailedOldStringToConfig(configPath, r.OldString)
                 continue
@@ -253,6 +266,9 @@ func applyReplacements(
                 allowedFiles, false, config, endpointURL, apiKey)
             changed = append(changed, retryChanged...)
             continue
+        }
+        if os.Getenv("DEBUG_JISPER") != "" {
+            fmt.Printf("DEBUG: successfully matched using anchor: %s\n", actualOld)
         }
         if updated == original {
             continue
