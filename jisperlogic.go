@@ -212,6 +212,52 @@ func processSingleReplacement(
     return targetPath, true
 }
 
+func processReplacement(
+    r Replacement,
+    baseDir string,
+    language string,
+    configPath string,
+    allowedFiles []string,
+    autoRetry bool,
+) (string, bool) {
+    filename := strings.TrimSpace(r.Filename)
+    if filename == "" || !isFileAllowed(filename, allowedFiles) {
+        return "", false
+    }
+    original, ok := readFileContent(baseDir, filename)
+    if !ok {
+        if strings.TrimSpace(r.OldString) == "" {
+            return performCreateFile(baseDir, filename, r.NewString, language)
+        }
+        return "", false
+    }
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: applying replacement for %s\n", filename)
+    }
+    updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
+    if !applied {
+        pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
+        if os.Getenv("DEBUG_JISPER") != "" {
+            fmt.Printf("DEBUG: failed to find %s\n", r.OldString)
+        }
+        if !autoRetry {
+            writeFailedOldStringToConfig(configPath, r.OldString)
+        }
+        return "", false
+    }
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: applied replacement in %s using anchor: %s\n", filename, actualOld)
+    }
+    fmt.Printf("\x1b[1m%s\x1b[0m\n", filename)
+    printNumberedCombinedDiff(original, updated, filename, language)
+    targetPath := filepath.Join(baseDir, filename)
+    if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
+        pterm.Error.Printfln("Failed to write file %s: %v", targetPath, err)
+        return "", false
+    }
+    return targetPath, true
+}
+
 func applyReplacements(
     repls []Replacement,
     baseDir string,
@@ -226,33 +272,11 @@ func applyReplacements(
     pterm.Debug.Println("Starting applyReplacements")
     changed := []string{}
     for _, r := range repls {
-        filename := strings.TrimSpace(r.Filename)
-        if filename == "" || !isFileAllowed(filename, allowedFiles) {
+        if p, ok := processReplacement(r, baseDir, language, configPath, allowedFiles, autoRetry); ok {
+            changed = append(changed, p)
             continue
         }
-        targetPath := filepath.Join(baseDir, filename)
-        original, ok := readFileContent(baseDir, filename)
-        if !ok {
-            if strings.TrimSpace(r.OldString) == "" {
-                if p, ok := performCreateFile(baseDir, filename, r.NewString, language); ok {
-                    changed = append(changed, p)
-                }
-            }
-            continue
-        }
-
-        if os.Getenv("DEBUG_JISPER") != "" {
-            fmt.Printf("DEBUG: applying replacement for %s\n", filename)
-        }
-        updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
-        if !applied {
-            pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
-            if os.Getenv("DEBUG_JISPER") != "" {
-                fmt.Printf("DEBUG: failed to find %s\n", r.OldString)
-            }
-            if !autoRetry {
-                writeFailedOldStringToConfig(configPath, r.OldString)
-                continue
+        if !autoRetry {
             }
             pterm.Info.Printfln("Auto-retrying failed replacement for %s...", filename)
             retryTask := fmt.Sprintf("The string replacement for file '%s' failed because the "+
