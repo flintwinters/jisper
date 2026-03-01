@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "os"
+    "os/exec"
     "path/filepath"
 
     "github.com/go-git/go-git/v5"
@@ -33,33 +34,51 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
     })
 }
 
-func requireValidRepo(baseDir string) (string, bool) {
-    repoRoot, ok := repoFromDir(baseDir)
+func runCmd(r *git.Repository, name string, arg ...string) (string, int) {
+    w, err := r.Worktree()
+    if err != nil {
+        return "", 1
+    }
+    cmd := exec.Command(name, arg...)
+    cmd.Dir = w.Filesystem.Root()
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: Running %s %v in %s\n", name, arg, cmd.Dir)
+    }
+    out, err := cmd.CombinedOutput()
+    if err != nil {
+        if ee, ok := err.(*exec.ExitError); ok {
+            return string(out), ee.ExitCode()
+        }
+        return err.Error(), 1
+    }
+    return string(out), 0
+}
+
+func requireValidRepo(baseDir string) (*git.Repository, bool) {
+    repo, ok := repoFromDir(baseDir)
     if !ok {
-        fmt.Fprintln(os.Stderr,
-            "Not a git repository. Run 'git init' to create one, or navigate to a directory inside a git repository.")
-        return "", false
+        fmt.Fprintln(os.Stderr, "Not a git repository.")
+        return nil, false
     }
-    _, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD")
+    _, code := runCmd(repo, "git", "rev-parse", "--verify", "HEAD")
     if code != 0 {
-        fmt.Fprintln(os.Stderr, "No valid commits in repository. Create at least one commit before using undo/redo.")
-        return "", false
+        fmt.Fprintln(os.Stderr, "No valid commits in repository.")
+        return nil, false
     }
-    return repoRoot, true
+    return repo, true
 }
 
 func undoLastCommit(baseDir string) int {
-    repoRoot, ok := requireValidRepo(baseDir)
+    repo, ok := requireValidRepo(baseDir)
     if !ok {
         return 1
     }
-    _, code := runCmd(repoRoot, "git", "rev-parse", "--verify", "HEAD~1")
+    _, code := runCmd(repo, "git", "rev-parse", "--verify", "HEAD~1")
     if code != 0 {
-        fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists (this is the initial commit).")
-        fmt.Fprintln(os.Stderr, "Use 'git reset --soft HEAD~1' to uncommit while keeping changes.")
+        fmt.Fprintln(os.Stderr, "Cannot undo: no parent commit exists.")
         return 1
     }
-    _, code = runCmd(r, "git", "reset", "--hard", "HEAD~1")
+    _, code = runCmd(repo, "git", "reset", "--hard", "HEAD~1")
     if code != 0 {
         fmt.Fprintln(os.Stderr, "Git reset failed. Check for uncommitted changes or repository corruption.")
         return 1
