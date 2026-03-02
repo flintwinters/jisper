@@ -275,7 +275,12 @@ func selectContextFields(summary map[string]any, intentOnly bool) (map[string]an
     return map[string]any{"context": out}, true
 }
 
-func buildFileSummariesSection(files []string, baseDir string, intentOnly bool, _ map[string]any) string {
+func buildFileSummariesSection(
+    files []string,
+    baseDir string,
+    intentOnly bool,
+    _ map[string]any,
+) string {
     parts := []string{}
     for _, filename := range files {
         txt, ok := readFileContent(baseDir, filename)
