@@ -22,14 +22,6 @@ def run(cmd, cwd=None, shell=False):
         console.print(f"[bold red]Command failed:[/bold red] {' '.join(cmd) if isinstance(cmd, (list, tuple)) else cmd}")
         sys.exit(result.returncode)
 
-
-@app.command()
-def fmt():
-    """Format Go code using gofmt and goimports."""
-    run(["gofmt", "-s", "-w", "."])
-    run(["goimports", "-w", "."])
-
-
 @app.command()
 def lint():
     """Run golangci-lint with backend config."""
@@ -89,7 +81,6 @@ def clean():
 @app.command()
 def all(no_lint: bool = typer.Option(False, "--no-lint", help="Turn off linting.")):
     """Run all tasks: fmt, lint, vet, test, build."""
-    fmt()
     if not no_lint:
         lint()
     vet()
