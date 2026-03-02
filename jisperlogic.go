@@ -494,7 +494,10 @@ func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
     }
     msgAny, ok := choice0["message"]
     if !ok {
-        return ModelResponse{}, fmt.Errorf("API response choices[0] missing 'message' field. Keys: %v", getKeys(choice0))
+        return ModelResponse{}, fmt.Errorf(
+            "API response choices[0] missing 'message' field. Keys: %v",
+            getKeys(choice0),
+        )
     }
     msg, ok := msgAny.(map[string]any)
     if !ok {
