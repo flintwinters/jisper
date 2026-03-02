@@ -305,7 +305,7 @@ func runBuildStep(config map[string]any, configPath string) {
     if !ok {
         return
     }
-    fmt.Printf("Build: %s", cmdStr)
+    fmt.Printf("%s\n", cmdStr)
     cmd := exec.Command("/bin/sh", "-c", cmdStr)
     var outB, errB bytes.Buffer
     cmd.Stdout = io.MultiWriter(os.Stdout, &outB)
