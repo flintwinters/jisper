@@ -304,12 +304,20 @@ func buildFileSummariesSection(
     return strings.Join(parts, "\n\n")
 }
 
-func buildSourceMaterial(promptConfig map[string]any, baseDir string, jinjaContext map[string]any) string {
+func buildSourceMaterial(
+    promptConfig map[string]any,
+    baseDir string,
+    jinjaContext map[string]any,
+) string {
     includes := resolveIncludedFiles(promptConfig, baseDir)
 
     fullText := strings.TrimSpace(readAndConcatenateFiles(includes.FullFiles, baseDir, jinjaContext))
-    structText := strings.TrimSpace(buildFileSummariesSection(includes.StructuralLevelFiles, baseDir, false, jinjaContext))
-    inputText := strings.TrimSpace(buildFileSummariesSection(includes.InputLevelFiles, baseDir, true, jinjaContext))
+    structText := strings.TrimSpace(
+        buildFileSummariesSection(includes.StructuralLevelFiles, baseDir, false, jinjaContext),
+    )
+    inputText := strings.TrimSpace(
+        buildFileSummariesSection(includes.InputLevelFiles, baseDir, true, jinjaContext),
+    )
 
     parts := []string{}
     if fullText != "" {
