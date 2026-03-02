@@ -167,11 +167,6 @@ func performCreateFile(baseDir, filename, newString, language string) (string, b
     return targetPath, true
 }
 
-
-    }
-    return targetPath, true
-}
-
 func processReplacement(
     r Replacement,
     baseDir string,
@@ -229,41 +224,27 @@ func applyReplacements(
     endpointURL string,
     apiKey string,
 ) []string {
-    pterm.Debug.Println("Starting applyReplacements")
     changed := []string{}
     for _, r := range repls {
+        filename := strings.TrimSpace(r.Filename)
         if p, ok := processReplacement(r, baseDir, language, configPath, allowedFiles, autoRetry); ok {
             changed = append(changed, p)
             continue
         }
-        if !autoRetry {
-            }
-            pterm.Info.Printfln("Auto-retrying failed replacement for %s...", filename)
-            retryTask := fmt.Sprintf("The string replacement for file '%s' failed because the "+
-                "old_string was not found. Please fix the old_string to match the actual "+
-                "file content exactly.\n\nFAILED OLD_STRING:\n%s\n\nFAILED NEW_STRING:\n%s",
-                filename, r.OldString, r.NewString)
-            pl, _ := buildPayload(config, original, "", retryTask, endpointURL)
-            retryMr, _, _ := callModel(endpointURL, apiKey, pl, config)
-            retryChanged := applyReplacements(
-                retryMr.Edit.Replacements, baseDir, language, configPath,
-                allowedFiles, false, config, endpointURL, apiKey)
-            changed = append(changed, retryChanged...)
+        if autoRetry {
             continue
         }
-        if os.Getenv("DEBUG_JISPER") != "" {
-            fmt.Printf("DEBUG: successfully matched using anchor: %s\n", actualOld)
-        }
-        if updated == original {
-            continue
-        }
-        fmt.Printf("\x1b[1m%s\x1b[0m", filename)
-        printNumberedCombinedDiff(original, updated, filename, language)
-        if err := os.WriteFile(targetPath, []byte(updated), 0o644); err != nil {
-            pterm.Error.Printf("  Failed to write file %s: %v\n", targetPath, err)
-            continue
-        }
-        changed = append(changed, targetPath)
+        pterm.Info.Printfln("Auto-retrying failed replacement for %s...", filename)
+        original, _ := readFileContent(baseDir, filename)
+        retryTask := fmt.Sprintf("The string replacement for '%s' failed. Fix the "+
+            "old_string to match the file content exactly.\n\nFAILED OLD:\n%s\n\nFAILED NEW:\n%s",
+            filename, r.OldString, r.NewString)
+        pl, _ := buildPayload(config, original, "", retryTask, endpointURL)
+        retryMr, _, _ := callModel(endpointURL, apiKey, pl, config)
+        retryPaths := applyReplacements(
+            retryMr.Edit.Replacements, baseDir, language, configPath,
+            allowedFiles, true, config, endpointURL, apiKey)
+        changed = append(changed, retryPaths...)
     }
     return changed
 }
