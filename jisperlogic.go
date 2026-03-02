@@ -473,45 +473,38 @@ func callOpenAICompatible(
     return apiJSON, resp.Header, nil
 }
 
-func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
+func extractMessage(apiJSON map[string]any) (map[string]any, error) {
     choicesAny, ok := apiJSON["choices"]
     if !ok {
-        return ModelResponse{}, fmt.Errorf(
-            "API response missing 'choices' field. Response keys: %v",
-            getKeys(apiJSON),
-        )
+        return nil, fmt.Errorf("API response missing 'choices' field. Response keys: %v", getKeys(apiJSON))
     }
     choices, ok := choicesAny.([]any)
-    if !ok {
-        return ModelResponse{}, fmt.Errorf("API response 'choices' is not an array, got %T", choicesAny)
-    }
-    if len(choices) == 0 {
-        return ModelResponse{}, fmt.Errorf("API response 'choices' array is empty")
+    if !ok || len(choices) == 0 {
+        return nil, fmt.Errorf("API response 'choices' is invalid or empty")
     }
     choice0, ok := choices[0].(map[string]any)
     if !ok {
-        return ModelResponse{}, fmt.Errorf("API response choices[0] is not an object, got %T", choices[0])
+        return nil, fmt.Errorf("API response choices[0] is not an object, got %T", choices[0])
     }
     msgAny, ok := choice0["message"]
     if !ok {
-        return ModelResponse{}, fmt.Errorf(
-            "API response choices[0] missing 'message' field. Keys: %v",
-            getKeys(choice0),
-        )
+        return nil, fmt.Errorf("API response choices[0] missing 'message' field")
     }
     msg, ok := msgAny.(map[string]any)
     if !ok {
-        return ModelResponse{}, fmt.Errorf(
-            "API response choices[0].message is not an object, got %T",
-            msgAny,
-        )
+        return nil, fmt.Errorf("API response choices[0].message is not an object")
+    }
+    return msg, nil
+}
+
+func parseModelResponse(apiJSON map[string]any) (ModelResponse, error) {
+    msg, err := extractMessage(apiJSON)
+    if err != nil {
+        return ModelResponse{}, err
     }
     contentAny, ok := msg["content"]
     if !ok {
-        return ModelResponse{}, fmt.Errorf(
-            "API response choices[0].message missing 'content' field. Keys: %v",
-            getKeys(msg),
-        )
+        return ModelResponse{}, fmt.Errorf("API response message missing 'content' field")
     }
     content, ok := contentAny.(string)
     if !ok {
