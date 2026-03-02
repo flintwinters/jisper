@@ -433,6 +433,7 @@ func runActionHandler(c *cli.Context) error {
     repo := initRepoIfMissing(".")
     stageAndCommit(repo, changed, msg)
     runBuildStep(config, promptPath)
+    reportCost(mc, usage, config)
     return nil
 }
 

@@ -418,6 +418,5 @@ func run(
         os.Exit(0)
     }
     mr, usage, code := callModel(endpoint, key, pl, cfg)
-    reportCost(code, usage, cfg)
     return mr, usage, code, cfg, endpoint, key
 }
