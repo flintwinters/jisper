@@ -19,26 +19,27 @@ func repoFromDir(baseDir string) (*git.Repository, bool) {
     return r, true
 }
 
-func createAndCheckoutBranch(r *git.Repository, branchName string) {
-    w, err := r.Worktree()
-    if err != nil {
-        return
-    }
-    head, err := r.Head()
-    if err != nil {
-        return
-    }
-    name := plumbing.NewBranchReferenceName(branchName)
-    err = w.Checkout(&git.CheckoutOptions{
-        Hash:   head.Hash(),
-        Branch: name,
-        Create: true,
-    })
-    if err != nil {
-        _ = w.Checkout(&git.CheckoutOptions{
-            Branch: name,
-        })
-    }
+func createAndCheckoutBranch(r *git.Repository,
+	branchName string) {
+	w, err := r.Worktree()
+	if err != nil {
+		return
+	}
+	head, err := r.Head()
+	if err != nil {
+		return
+	}
+	name := plumbing.NewBranchReferenceName(branchName)
+	err = w.Checkout(&git.CheckoutOptions{
+		Hash:   head.Hash(),
+		Branch: name,
+		Create: true,
+	})
+	if err != nil {
+		_ = w.Checkout(&git.CheckoutOptions{
+			Branch: name,
+		})
+	}
 }
 
 func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
