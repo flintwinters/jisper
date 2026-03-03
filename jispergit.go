@@ -49,22 +49,14 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
     if err != nil {
         return
     }
-    conf, _ := r.Config()
-    deduped := dedupeKeepOrder(changedFiles)
-    if len(deduped) == 0 {
-        return
-    }
-    for _, p := range deduped {
-        rel, _ := filepath.Rel(conf.Core.Worktree, p)
-        _, _ = w.Add(rel)
-    }
-    config, _ := r.Config()
+    configObj, _ := r.Config()
     author, _ := r.ConfigScoped(config.LocalScope)
-    if os.Getenv("DEBUG_JISPER") != "" {
+    if os.Getenv("DEBUG_JISPER") != ""
         fmt.Printf("DEBUG: Git Author config: %+v\n", author)
+        fmt.Printf("DEBUG: Core worktree: %s\n", configObj.Core.Worktree)
     }
     if author == nil {
-        author = config
+        author = configObj
     }
     userName := author.User.Name
     userEmail := author.User.Email
