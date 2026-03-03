@@ -66,7 +66,7 @@ var DefaultOutputSchema = map[string]any{
                     },
                 },
             },
-            "required":             []string{"explanation", "commit_message", "replacements"},
+            "required":             []string{"explanation", "commit_message", "branch_name", "replacements"},
             "additionalProperties": false,
         },
     },
