@@ -195,7 +195,6 @@ func processReplacement(
         if !autoRetry {
             pterm.Error.Printfln("Replacement failed in %s", filename)
             pterm.Info.Printfln("Attempted old_string:\n%s", r.OldString)
-            pterm.Info.Println("To fix: update your old_string to match the file's current content exactly.")
             writeFailedOldStringToConfig(configPath, r.OldString)
         }
         return "", false
@@ -319,10 +318,15 @@ func runBuildStep(config map[string]any, configPath string) {
             code = 1
         }
     }
-    updatePromptConfigWithBuildResults(configPath,
-        sanitizeOutput(outB.String()),
-        sanitizeOutput(errB.String()),
+    updatePromptConfigWithBuildResults(configPath, 
+        sanitizeOutput(outB.String()), 
+        sanitizeOutput(errB.String()), 
         code)
+    if code == 0 {
+        pterm.FgLightGreen.Println("BUILD SUCCESS")
+    } else {
+        pterm.FgLightRed.Printfln("BUILD FAILED (exit code: %d)", code)
+    }
 }
 
 func calculateBackoff(attempt, initialDelayMs, maxDelayMs int) int {
