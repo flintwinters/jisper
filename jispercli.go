@@ -416,6 +416,18 @@ func runActionHandler(c *cli.Context) error {
     debug := c.Bool("debug")
     noModel := c.Bool("no-model")
     task := c.String("task")
+    branchOverride := c.String("branch")
+    if branchOverride != "" {
+        delete(DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["properties"].(map[string]any), "branch_name")
+        required := DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"].([]string)
+        newReq := []string{}
+        for _, r := range required {
+            if r != "branch_name" {
+                newReq = append(newReq, r)
+            }
+        }
+        DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"] = newReq
+    }
     mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
     if c.Bool("debug") {
         fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%+v\n", promptPath, routine, usage, mc)
@@ -431,6 +443,13 @@ func runActionHandler(c *cli.Context) error {
         msg = "Apply model edits"
     }
     repo := initRepoIfMissing(".")
+    targetBranch := branchOverride
+    if targetBranch == "" && mr.Edit.BranchName != "" {
+        targetBranch = mr.Edit.BranchName
+    }
+    if targetBranch != "" {
+        createAndCheckoutBranch(repo, targetBranch)
+    }
     stageAndCommit(repo, changed, msg)
     runBuildStep(config, promptPath)
     reportCost(mc, usage, config)
@@ -446,6 +465,7 @@ func main() {
             &cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"},
             &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
             &cli.BoolFlag{Name: "auto-retry"},
+            cli.StringFlag{Name: "branch, b", Usage: "Branch name to create and checkout"},
             cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
             cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
         },

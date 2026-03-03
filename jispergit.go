@@ -19,6 +19,23 @@ func repoFromDir(baseDir string) (*git.Repository, bool) {
     return r, true
 }
 
+func createAndCheckoutBranch(r *git.Repository, branchName string) {
+    w, err := r.Worktree()
+    if err != nil {
+        return
+    }
+    head, err := r.Head()
+    if err != nil {
+        return
+    }
+    name := plumbing.NewBranchReferenceName(branchName)
+    _ = w.Checkout(&git.CheckoutOptions{
+        Hash:   head.Hash(),
+        Branch: name,
+        Create: true,
+    })
+}
+
 func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
     w, err := r.Worktree()
     if err != nil {

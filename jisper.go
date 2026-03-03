@@ -39,6 +39,10 @@ var DefaultOutputSchema = map[string]any{
                     "type":        "string",
                     "description": "The commit message to use for the changes you are making",
                 },
+                "branch_name": map[string]any{
+                    "type":        "string",
+                    "description": "The name of the new branch to create for these changes",
+                },
                 "replacements": map[string]any{
                     "type": "array",
                     "items": map[string]any{
