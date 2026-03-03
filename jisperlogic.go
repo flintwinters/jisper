@@ -231,7 +231,7 @@ func applyReplacements(
             changed = append(changed, p)
             continue
         }
-        if autoRetry {
+        if !autoRetry {
             continue
         }
         pterm.Info.Printfln("Auto-retrying failed replacement for %s...", filename)
