@@ -399,15 +399,18 @@ func handleRunIssueAction(c *cli.Context, promptPath string) error {
 }
 
 func stripBranchFromSchema() {
-    delete(DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["properties"].(map[string]any), "branch_name")
-    required := DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"].([]string)
+    props := DefaultOutputSchema["properties"].(map[string]any)
+    edit := props["edit"].(map[string]any)
+    schemas := edit["properties"].(map[string]any)
+    delete(schemas, "branch_name")
+    required := edit["required"].([]string)
     newReq := []string{}
     for _, r := range required {
         if r != "branch_name" {
             newReq = append(newReq, r)
         }
     }
-    DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"] = newReq
+    edit["required"] = newReq
 }
 
 func runActionHandler(c *cli.Context) error {
