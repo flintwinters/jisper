@@ -83,6 +83,7 @@ type Edit struct {
     Explanation   string        `json:"explanation"`
     CommitMessage string        `json:"commit_message"`
     Replacements  []Replacement `json:"replacements"`
+    BranchName    string        `json:"branch_name"`
 }
 
 type ModelResponse struct {
