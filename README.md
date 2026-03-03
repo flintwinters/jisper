@@ -7,6 +7,7 @@ Motivation: ad-hoc “paste code into a chat and copy changes back” is hard to
 ## What it does
 
 - Loads a prompt/config file (YAML or JSON5).
+- Allows overriding the task via the CLI using `-t` or `--task`.
 - Reads a configured set of project files as source material.
 - Optionally extracts compact context from `[FILE SUMMARY] ... [/FILE SUMMARY]` blocks.
 - Calls a Chat Completions endpoint.
