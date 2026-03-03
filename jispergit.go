@@ -7,7 +7,10 @@ import (
     "path/filepath"
 
     "github.com/go-git/go-git/v5"
+    "github.com/go-git/go-git/v5/config"
     "github.com/go-git/go-git/v5/plumbing"
+    "github.com/go-git/go-git/v5/plumbing/object"
+    "time"
 )
 
 func repoFromDir(baseDir string) (*git.Repository, bool) {
@@ -56,7 +59,10 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
         _, _ = w.Add(rel)
     }
     config, _ := r.Config()
-    author, _ := r.ConfigScoped(git.LocalScope)
+    author, _ := r.ConfigScoped(config.LocalScope)
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: Git Author config: %+v\n", author)
+    }
     if author == nil {
         author = config
     }
