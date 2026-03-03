@@ -337,10 +337,17 @@ func resolveOnePath(v string, baseDir string) []string {
 }
 
 func resolvePathsAndGlobs(values []string, baseDir string) []string {
-    return dedupeKeepOrder(flatMapStr(values, func(v string) []string {
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: resolving values: %v in %s\n", values, baseDir)
+    }
+    res := dedupeKeepOrder(flatMapStr(values, func(v string) []string {
         return resolveOnePath(v, baseDir)
     }))
-}
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: resolved to: %v\n", res)
+    }
+    return res
+}}
 
 func stripJSONCodeFence(s string) string {
     t := strings.TrimSpace(s)
