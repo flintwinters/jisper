@@ -55,7 +55,24 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
         rel, _ := filepath.Rel(conf.Core.Worktree, p)
         _, _ = w.Add(rel)
     }
-    _, _ = w.Commit(message, &git.CommitOptions{})
+    config, _ := r.Config()
+    author, _ := r.ConfigScoped(git.LocalScope)
+    if author == nil {
+        author = config
+    }
+    userName := author.User.Name
+    userEmail := author.User.Email
+    if userName == "" || userEmail == "" {
+        userName = "Jisper"
+        userEmail = "jisper@example.com"
+    }
+    _, _ = w.Commit(message, &git.CommitOptions{
+        Author: &object.Signature{
+            Name:  userName,
+            Email: userEmail,
+            When:  time.Now(),
+        },
+    })
 }
 
 func runCmd(r *git.Repository, name string, arg ...string) (string, int) {
