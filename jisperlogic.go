@@ -177,14 +177,13 @@ func processReplacement(
     config map[string]any,
 ) (string, bool) {
     filename := strings.TrimSpace(r.Filename)
-    readOnlyRaw := asListOfNonEmptyStr(config["read_only_files"])
-    readOnlyFiles := resolvePathsAndGlobs(readOnlyRaw, baseDir)
+    includes := resolveIncludedFiles(config, baseDir)
 
     if filename == "" || !isFileAllowed(filename, allowedFiles) {
         return "", false
     }
 
-    for _, ro := range readOnlyFiles {
+    for _, ro := range includes.ReadOnlyFiles {
         if filepath.Clean(ro) == filepath.Clean(filename) {
             pterm.Error.Printfln("Refusing to modify read-only file: %s", filename)
             return "", false
