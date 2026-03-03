@@ -398,6 +398,18 @@ func handleRunIssueAction(c *cli.Context, promptPath string) error {
     return nil
 }
 
+func stripBranchFromSchema() {
+    delete(DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["properties"].(map[string]any), "branch_name")
+    required := DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"].([]string)
+    newReq := []string{}
+    for _, r := range required {
+        if r != "branch_name" {
+            newReq = append(newReq, r)
+        }
+    }
+    DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"] = newReq
+}
+
 func runActionHandler(c *cli.Context) error {
     handleGlobalFlags(c)
     promptPath := c.String("prompt")
@@ -418,15 +430,7 @@ func runActionHandler(c *cli.Context) error {
     task := c.String("task")
     branchOverride := c.String("branch")
     if branchOverride != "" {
-        delete(DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["properties"].(map[string]any), "branch_name")
-        required := DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"].([]string)
-        newReq := []string{}
-        for _, r := range required {
-            if r != "branch_name" {
-                newReq = append(newReq, r)
-            }
-        }
-        DefaultOutputSchema["properties"].(map[string]any)["edit"].(map[string]any)["required"] = newReq
+        stripBranchFromSchema()
     }
     mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
     if c.Bool("debug") {
