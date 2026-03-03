@@ -322,10 +322,11 @@ func runBuildStep(config map[string]any, configPath string) {
         sanitizeOutput(outB.String()), 
         sanitizeOutput(errB.String()), 
         code)
+
     if code == 0 {
-        pterm.BgLightGreen.Println(" BUILD SUCCESS ")
+        pterm.NewStyle(pterm.FgBlack, pterm.BgLightGreen, pterm.Bold).Println(" BUILD SUCCESS ")
     } else {
-        pterm.BgLightRed.Printfln(" BUILD FAILED (exit code: %d) ", code)
+        pterm.NewStyle(pterm.FgBlack, pterm.BgLightRed, pterm.Bold).Printfln(" BUILD FAILED (exit code: %d) ", code)
     }
 }
 
