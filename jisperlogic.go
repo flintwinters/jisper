@@ -193,6 +193,8 @@ func processReplacement(
     if !applied {
         pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
         if !autoRetry {
+            pterm.Error.Printfln("Replacement failed in %s", filename)
+            pterm.Info.Printfln("Attempted old_string:\n%s", r.OldString)
             pterm.Info.Println("To fix: update your old_string to match the file's current content exactly.")
             writeFailedOldStringToConfig(configPath, r.OldString)
         }
