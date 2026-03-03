@@ -413,7 +413,14 @@ func stripBranchFromSchema() {
     edit["required"] = newReq
 }
 
-func processModelEdits(c *cli.Context, promptPath, routine, task string) (ModelResponse, Usage, string, map[string]any, string, []string) {
+func processModelEdits(c *cli.Context, promptPath, routine, task string) (
+	ModelResponse,
+	Usage,
+	string,
+	map[string]any,
+	string,
+	[]string,
+) {
 	debug := c.Bool("debug")
 	noModel := c.Bool("no-model")
 	if c.IsSet("branch") {
