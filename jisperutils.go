@@ -347,7 +347,7 @@ func resolvePathsAndGlobs(values []string, baseDir string) []string {
         fmt.Printf("DEBUG: resolved to: %v\n", res)
     }
     return res
-}}
+}
 
 func stripJSONCodeFence(s string) string {
     t := strings.TrimSpace(s)
@@ -451,6 +451,9 @@ func extractLinesAround(filename string, lineNum int, baseDir string, before, af
         end = len(lines)
     }
     var out []string
+    if os.Getenv("DEBUG_JISPER") != "" {
+        fmt.Printf("DEBUG: extracting lines %d-%d from %s\n", start, end, filename)
+    }
     for i := start; i < end; i++ {
         out = append(out, lines[i])
     }
