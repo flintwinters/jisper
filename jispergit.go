@@ -56,9 +56,7 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
         rel, _ := filepath.Rel(conf.Core.Worktree, p)
         _, _ = w.Add(rel)
     }
-    _, _ = w.Commit(message, &git.CommitOptions{
-        Author: &object.Signature{Name: "Jisper", Email: "jisper@localhost"},
-    })
+    _, _ = w.Commit(message, &git.CommitOptions{})
 }
 
 func runCmd(r *git.Repository, name string, arg ...string) (string, int) {
