@@ -455,8 +455,10 @@ func runActionHandler(c *cli.Context) error {
         targetBranch = mr.Edit.BranchName
     }
     if targetBranch != "" {
+        pterm.Info.Printfln("Branch: %s", targetBranch)
         createAndCheckoutBranch(repo, targetBranch)
     }
+    pterm.Info.Printfln("Commit: %s", msg)
     stageAndCommit(repo, changed, msg)
     runBuildStep(config, promptPath)
     reportCost(mc, usage, config)
