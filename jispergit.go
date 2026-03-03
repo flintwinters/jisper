@@ -48,7 +48,11 @@ func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
         return
     }
     conf, _ := r.Config()
-    for _, p := range dedupeKeepOrder(changedFiles) {
+    deduped := dedupeKeepOrder(changedFiles)
+    if len(deduped) == 0 {
+        return
+    }
+    for _, p := range deduped {
         rel, _ := filepath.Rel(conf.Core.Worktree, p)
         _, _ = w.Add(rel)
     }
