@@ -192,10 +192,8 @@ func processReplacement(
     updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
     if !applied {
         pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
-        if os.Getenv("DEBUG_JISPER") != "" {
-            fmt.Printf("DEBUG: failed to find %s\n", r.OldString)
-        }
         if !autoRetry {
+            pterm.Info.Println("To fix: update your old_string to match the file's current content exactly.")
             writeFailedOldStringToConfig(configPath, r.OldString)
         }
         return "", false
