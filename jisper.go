@@ -156,6 +156,7 @@ func getModelCode(config map[string]any) string {
 func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
     if os.Getenv("DEBUG_JISPER") != "" {
         fmt.Printf("DEBUG: Resolving files in baseDir: %s\n", baseDir)
+        fmt.Printf("DEBUG: full_files config: %v\n", config["full_files"])
     }
     fullRaw := asListOfNonEmptyStr(config["full_files"])
     structRaw := asListOfNonEmptyStr(config["structural_level_files"])

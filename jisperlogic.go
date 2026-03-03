@@ -202,6 +202,9 @@ func processReplacement(
     }
     updated, actualOld, applied := applyOneReplacement(original, r.OldString, r.NewString)
     if !applied {
+        if os.Getenv("DEBUG_JISPER") != "" {
+            fmt.Printf("DEBUG: Failed to find old_string in %s. Head: %s\n", filename, truncateString(original, 100))
+        }
         pterm.Warning.Printfln("old_string not found in %s; skipping", filename)
         if !autoRetry {
             pterm.Error.Printfln("Replacement failed in %s", filename)
