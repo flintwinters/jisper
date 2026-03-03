@@ -44,14 +44,18 @@ func createAndCheckoutBranch(r *git.Repository,
 	}
 }
 
-func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
+func stageAndCommit(
+	r *git.Repository,
+	changedFiles []string,
+	message string,
+) {
     w, err := r.Worktree()
     if err != nil {
         return
     }
     configObj, _ := r.Config()
     author, _ := r.ConfigScoped(config.LocalScope)
-    if os.Getenv("DEBUG_JISPER") != ""
+    if os.Getenv("DEBUG_JISPER") != "" {
         fmt.Printf("DEBUG: Git Author config: %+v\n", author)
         fmt.Printf("DEBUG: Core worktree: %s\n", configObj.Core.Worktree)
     }
