@@ -94,6 +94,7 @@ type IncludedFiles struct {
     FullFiles            []string
     StructuralLevelFiles []string
     InputLevelFiles      []string
+    ReadOnlyFiles        []string
     SourceFiles          []string
 }
 
@@ -159,10 +160,12 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
     fullRaw := asListOfNonEmptyStr(config["full_files"])
     structRaw := asListOfNonEmptyStr(config["structural_level_files"])
     inputRaw := asListOfNonEmptyStr(config["input_level_files"])
+    readOnlyRaw := asListOfNonEmptyStr(config["read_only_files"])
 
     fullFiles := resolvePathsAndGlobs(fullRaw, baseDir)
     structFiles := resolvePathsAndGlobs(structRaw, baseDir)
     inputFiles := resolvePathsAndGlobs(inputRaw, baseDir)
+    readOnlyFiles := resolvePathsAndGlobs(readOnlyRaw, baseDir)
 
     fullSet := map[string]bool{}
     for _, f := range fullFiles {
@@ -190,6 +193,7 @@ func resolveIncludedFiles(config map[string]any, baseDir string) IncludedFiles {
         FullFiles:            fullFiles,
         StructuralLevelFiles: structOut,
         InputLevelFiles:      inputOut,
+        ReadOnlyFiles:        readOnlyFiles,
         SourceFiles:          sourceFiles,
     }
 }
@@ -317,6 +321,7 @@ func buildSourceMaterial(
     includes := resolveIncludedFiles(promptConfig, baseDir)
 
     fullText := strings.TrimSpace(readAndConcatenateFiles(includes.FullFiles, baseDir, jinjaContext))
+    readOnlyText := strings.TrimSpace(readAndConcatenateFiles(includes.ReadOnlyFiles, baseDir, jinjaContext))
     structText := strings.TrimSpace(
         buildFileSummariesSection(includes.StructuralLevelFiles, baseDir, false, jinjaContext),
     )
@@ -325,6 +330,9 @@ func buildSourceMaterial(
     )
 
     parts := []string{}
+    if readOnlyText != "" {
+        parts = append(parts, "READ ONLY FILES (DO NOT MODIFY):\n"+readOnlyText)
+    }
     if fullText != "" {
         parts = append(parts, fullText)
     }
