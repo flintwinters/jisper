@@ -432,7 +432,7 @@ func runActionHandler(c *cli.Context) error {
     noModel := c.Bool("no-model")
     task := c.String("task")
     branchOverride := c.String("branch")
-    if c.IsSet("branch") {
+    if branchOverride != "" {
         stripBranchFromSchema()
     }
     mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
