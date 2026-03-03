@@ -29,11 +29,16 @@ func createAndCheckoutBranch(r *git.Repository, branchName string) {
         return
     }
     name := plumbing.NewBranchReferenceName(branchName)
-    _ = w.Checkout(&git.CheckoutOptions{
+    err = w.Checkout(&git.CheckoutOptions{
         Hash:   head.Hash(),
         Branch: name,
         Create: true,
     })
+    if err != nil {
+        _ = w.Checkout(&git.CheckoutOptions{
+            Branch: name,
+        })
+    }
 }
 
 func stageAndCommit(r *git.Repository, changedFiles []string, message string) {
