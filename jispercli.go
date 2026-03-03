@@ -431,7 +431,10 @@ func runActionHandler(c *cli.Context) error {
     debug := c.Bool("debug")
     noModel := c.Bool("no-model")
     task := c.String("task")
-    branchOverride := c.String("branch")
+    branchOverride := ""
+    if c.IsSet("branch") {
+        branchOverride = c.String("branch")
+    }
     if branchOverride != "" {
         stripBranchFromSchema()
     }
@@ -474,7 +477,7 @@ func main() {
             &cli.BoolFlag{Name: "redo"}, &cli.BoolFlag{Name: "build"},
             &cli.BoolFlag{Name: "debug"}, &cli.BoolFlag{Name: "no-model"},
             &cli.BoolFlag{Name: "auto-retry"},
-            cli.StringFlag{Name: "branch, b", Usage: "Branch name to create and checkout"},
+            &cli.StringFlag{Name: "branch, b", Usage: "Branch name to create and checkout", Value: ""},
             cli.StringFlag{Name: "issues", Value: "issues.json", Usage: "Path to issues JSON file"},
             cli.StringFlag{Name: "task, t", Usage: "Task to perform (overrides config task and routine)"},
         },
