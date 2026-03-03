@@ -413,23 +413,23 @@ func stripBranchFromSchema() {
     edit["required"] = newReq
 }
 
-func processModelEdits(c *cli.Context, promptPath, routine, task string) (ModelResponse, map[string]any, string, bool) {
-    debug := c.Bool("debug")
-    noModel := c.Bool("no-model")
-    if c.IsSet("branch") {
-        stripBranchFromSchema()
-    }
-    mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
-    if debug {
-        fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%+v\n", promptPath, routine, usage, mc)
-        fmt.Printf("DEBUG: full_files=%v\n", config["full_files"])
-    }
-    lang, _ := asNonEmptyStr(config["language"])
-    includes := resolveIncludedFiles(config, ".")
-    changed := applyReplacements(
-        mr.Edit.Replacements, ".", lang, promptPath,
-        includes.SourceFiles, c.Bool("auto-retry"), config, endpointURL, apiKey)
-    return mr, config, c.String("branch"), changed
+func processModelEdits(c *cli.Context, promptPath, routine, task string) (ModelResponse, Usage, string, map[string]any, string, []string) {
+	debug := c.Bool("debug")
+	noModel := c.Bool("no-model")
+	if c.IsSet("branch") {
+		stripBranchFromSchema()
+	}
+	mr, usage, mc, config, endpointURL, apiKey := run(promptPath, routine, debug, noModel, task)
+	if debug {
+		fmt.Printf("DEBUG: promptPath=%s routine=%s usage=%+v model_config=%s\n", promptPath, routine, usage, mc)
+		fmt.Printf("DEBUG: full_files=%v\n", config["full_files"])
+	}
+	lang, _ := asNonEmptyStr(config["language"])
+	includes := resolveIncludedFiles(config, ".")
+	changed := applyReplacements(
+		mr.Edit.Replacements, ".", lang, promptPath,
+		includes.SourceFiles, c.Bool("auto-retry"), config, endpointURL, apiKey)
+	return mr, usage, mc, config, c.String("branch"), changed
 }
 
 func runActionHandler(c *cli.Context) error {
@@ -447,7 +447,7 @@ func runActionHandler(c *cli.Context) error {
     if c.NArg() > 0 {
         routine = c.Args().Get(0)
     }
-    mr, config, branchOverride, changed := processModelEdits(c, promptPath, routine, c.String("task"))
+    mr, usage, mc, config, branchOverride, changed := processModelEdits(c, promptPath, routine, c.String("task"))
     msg := strings.TrimSpace(mr.Edit.CommitMessage)
     if msg == "" {
         msg = "Apply model edits"
